@@ -5,11 +5,11 @@ See docs/missionchief-api.md for the confirmed auth mechanism: a Rails session c
 an `X-CSRF-Token` header whose value is also embedded as `<meta name="csrf-token">` on every
 authenticated page.
 
-The username/password sign-in *form itself* (docs/missionchief-api.md's "not yet captured"
-list) has never been captured live, so `login_with_credentials` below does not hardcode field
-names — it scrapes whatever form is actually on the sign-in page at runtime (action URL, hidden
-tokens, and the real email/password field names) and submits that. This needs a real test run
-against the live site to confirm it actually works; it hasn't been verified end-to-end.
+The username/password sign-in form at `/users/sign_in` has been confirmed against a real
+capture (see docs/missionchief-api.md): Devise-style `user[email]` / `user[password]` fields,
+POSTing to `/users/sign_in`. `login_with_credentials` still scrapes the form at runtime rather
+than hardcoding those names, since that's more robust to the page changing later, but the field
+names it discovers are now expected, not guessed.
 """
 from __future__ import annotations
 
@@ -25,11 +25,10 @@ from bs4 import BeautifulSoup
 
 from .constants import DEFAULT_BASE_URL
 
-CSRF_META_RE = re.compile(r'<meta name="csrf-token" content="([^"]+)"')
-
 # Substrings that only appear on MissionChief's logged-out / sign-in page, never on an
-# authenticated page or a JSON API response. Best-effort/unconfirmed (see module docstring).
-LOGIN_PAGE_MARKERS = ("user_session_email", "user[email]", "/users/sign_in")
+# authenticated page or a JSON API response. Confirmed 2026-07 against a real capture of
+# https://www.missionchief.com/users/sign_in (see docs/missionchief-api.md).
+LOGIN_PAGE_MARKERS = ("user[email]", "/users/sign_in")
 
 ALERT_TEXT_RE = re.compile(r'class="[^"]*alert[^"]*"[^>]*>\s*([^<]{3,200})<')
 
@@ -129,14 +128,20 @@ def _save_session_cookies(jar: requests.cookies.RequestsCookieJar, path: Path) -
 
 
 def extract_csrf_token(html: str) -> str:
-    """Pull the Rails CSRF token out of a page's `<meta name="csrf-token">` tag."""
-    match = CSRF_META_RE.search(html)
-    if not match:
+    """Pull the Rails CSRF token out of a page's `<meta name="csrf-token">` tag.
+
+    Uses BeautifulSoup rather than a regex on purpose: the real page emits this tag as
+    `<meta content="..." name="csrf-token" />` (content *before* name — confirmed from a real
+    capture), so an order-sensitive regex silently fails to match it.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    tag = soup.find("meta", attrs={"name": "csrf-token"})
+    if not tag or not tag.get("content"):
         raise SessionExpiredError(
             "Could not find a CSRF token on the MissionChief homepage — the session is likely "
             "invalid or expired."
         )
-    return match.group(1)
+    return tag["content"]
 
 
 def check_session_alive(response: requests.Response) -> None:
@@ -213,9 +218,8 @@ def _find_login_form(html: str, base_url: str) -> tuple[str, dict[str, str], str
 def login_with_credentials(session: requests.Session, base_url: str, username: str, password: str) -> None:
     """Log in with a username/password by scraping and submitting the real sign-in form.
 
-    NOTE: unverified against the live site — the sign-in page was never captured (see
-    docs/missionchief-api.md). If this breaks, the most likely cause is that the real field
-    names, form action, or a CAPTCHA/2FA step differ from what's assumed here.
+    Field names/form action confirmed against a real capture of /users/sign_in (see
+    docs/missionchief-api.md). Still scrapes at runtime rather than hardcoding those values.
     """
     sign_in_url = urljoin(base_url, "/users/sign_in")
     resp = session.get(sign_in_url, timeout=30)

@@ -133,11 +133,9 @@ There are three modes (`MC_AUTH_MODE`):
   `chmod 600` locks it to your user, but it's still plaintext on disk. If that's not acceptable
   for your setup, use cookie mode instead.
 
-  **Note:** MissionChief's actual login page/form has never been captured and verified against
-  this code — it works by scraping whatever form is present on `/users/sign_in` at runtime rather
-  than assuming field names, but this hasn't been tested against the real site yet. If it fails,
-  the error message will say whether it's bad credentials, a missing form, or something
-  unexpected; please report back what you see so this can be fixed against real data.
+  Verified against a real login on `missionchief.com`: it scrapes the actual sign-in form at
+  runtime (rather than hardcoding field names) and confirms success by checking for a redirect
+  away from the sign-in page.
 
 - **`cookie`** — paste a session cookie you copied yourself:
 

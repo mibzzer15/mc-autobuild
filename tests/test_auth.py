@@ -24,10 +24,35 @@ DEVISE_STYLE_LOGIN_PAGE = """
 </body></html>
 """
 
+# Trimmed excerpt of a real capture of https://www.missionchief.com/users/sign_in
+# (2026-07), including the exact attribute order the real site uses.
+REAL_SIGN_IN_PAGE = """
+<meta content="authenticity_token" name="csrf-param" />
+<meta content="Wkp3S9SICwpH8VkEqAUni2J1DOhWgW30dG+v19vTDS4=" name="csrf-token" />
+<form accept-charset="UTF-8" action="/users/sign_in" class="simple_form form-horizontal" id="new_user" method="post" novalidate="novalidate">
+<div style="margin:0;padding:0;display:inline">
+<input name="utf8" type="hidden" value="&#x2713;" />
+<input name="authenticity_token" type="hidden" value="Wkp3S9SICwpH8VkEqAUni2J1DOhWgW30dG+v19vTDS4=" />
+</div>
+<input class="string email optional form-control" id="user_email" name="user[email]" type="email" value="" />
+<input class="password optional form-control" id="user_password" name="user[password]" type="password" />
+<input name="user[remember_me]" type="hidden" value="0" />
+<input class="boolean optional" id="user_remember_me" name="user[remember_me]" type="checkbox" value="1" />
+<input class="btn btn btn-success pull-right btn-lg" name="commit" type="submit" value="Login" />
+</form>
+"""
+
 
 def test_extract_csrf_token_finds_meta_tag():
     html = '<html><head><meta name="csrf-token" content="abc123=="></head></html>'
     assert extract_csrf_token(html) == "abc123=="
+
+
+def test_extract_csrf_token_handles_content_before_name_attribute_order():
+    # Regression test: the real site emits `content` before `name` (confirmed from a live
+    # capture of missionchief.com), which an order-sensitive regex previously missed entirely.
+    html = '<meta content="authenticity_token" name="csrf-param" />' '<meta content="realtoken==" name="csrf-token" />'
+    assert extract_csrf_token(html) == "realtoken=="
 
 
 def test_extract_csrf_token_missing_raises():
@@ -77,6 +102,20 @@ def test_find_login_form_scrapes_real_field_names():
     assert password_field == "user[password]"
     # hidden fields (CSRF token etc.) are preserved so they get submitted along with credentials
     assert fields["authenticity_token"] == "tok123"
+
+
+def test_find_login_form_matches_real_captured_sign_in_page():
+    action_url, fields, identifier_field, password_field = _find_login_form(
+        REAL_SIGN_IN_PAGE, "https://www.missionchief.com"
+    )
+    assert action_url == "https://www.missionchief.com/users/sign_in"
+    assert identifier_field == "user[email]"
+    assert password_field == "user[password]"
+    assert fields["authenticity_token"] == "Wkp3S9SICwpH8VkEqAUni2J1DOhWgW30dG+v19vTDS4="
+
+
+def test_extract_csrf_token_matches_real_captured_sign_in_page():
+    assert extract_csrf_token(REAL_SIGN_IN_PAGE) == "Wkp3S9SICwpH8VkEqAUni2J1DOhWgW30dG+v19vTDS4="
 
 
 def test_find_login_form_missing_password_field_raises():
