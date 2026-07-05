@@ -246,11 +246,14 @@ def build_session(config: AuthConfig) -> requests.Session:
     host = urlparse(config.base_url).netloc
 
     session = requests.Session()
+    # Plain browser-navigation headers by default. Deliberately NOT X-Requested-With/AJAX
+    # Accept here — Rails responds differently to requests flagged as AJAX (confirmed: with
+    # those headers on a plain GET /, the CSRF meta tag goes missing from the response). The
+    # JSON API endpoints need those headers, so mc_client.py adds them per-request instead.
     session.headers.update(
         {
             "User-Agent": "Mozilla/5.0 (compatible; mc-autobuilder/0.1)",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
     )
 

@@ -17,6 +17,15 @@ from .auth import check_session_alive
 
 logger = logging.getLogger(__name__)
 
+# Confirmed in docs/missionchief-api.md: the game's frontend JS attaches these to every AJAX
+# call to /api/*, distinct from a plain browser navigation request (see auth.py's session
+# defaults, which deliberately do NOT set these — Rails responds differently to AJAX-flagged
+# requests, and the JSON endpoints need this while the login/homepage HTML fetches must not have it).
+API_HEADERS = {
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+}
+
 
 @dataclass
 class RateLimitConfig:
@@ -45,10 +54,11 @@ class MissionChiefClient:
 
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}{path}"
+        headers = {**API_HEADERS, **kwargs.pop("headers", {})}
         attempt = 0
         while True:
             self._sleep_between_requests()
-            resp = self.session.request(method, url, timeout=30, **kwargs)
+            resp = self.session.request(method, url, timeout=30, headers=headers, **kwargs)
             if resp.status_code == 429 or resp.status_code >= 500:
                 attempt += 1
                 if attempt > self.rate_limit.max_retries:
