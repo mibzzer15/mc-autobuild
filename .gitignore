@@ -1,0 +1,11 @@
+.env
+storage_state.json
+*.db
+logs/
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/

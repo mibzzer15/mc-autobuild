@@ -1,0 +1,25 @@
+[project]
+name = "mc-autobuilder"
+version = "0.1.0"
+description = "Automates MissionChief station management using Realism Location Marker (RLM) real-world location data."
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "typer>=0.12",
+    "SQLAlchemy>=2.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+playwright = ["playwright>=1.40"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mc-autobuilder = "mc_autobuilder.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
