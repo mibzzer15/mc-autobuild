@@ -108,26 +108,53 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and set your auth mode. **Cookie mode is the one that works on a headless server**
-and is the recommended default:
+Edit `.env` and set your auth mode:
 
 ```bash
 nano .env
 ```
 
-```dotenv
-MC_AUTH_MODE=cookie
-MC_SESSION_COOKIE=paste_your_full_cookie_header_here
-MC_BASE_URL=https://www.missionchief.com
-```
+There are three modes (`MC_AUTH_MODE`):
 
-**Getting your session cookie:** log into MissionChief in your own browser, open DevTools
-(F12) → Network tab, click any request to `missionchief.com`, find the `Cookie` request header
-under Headers, and copy its full value (it looks like `_missionchief_session=...; other_cookie=...`)
-into `MC_SESSION_COOKIE`.
+- **`credentials`** (default, simplest) — give it your username/password directly:
+
+  ```dotenv
+  MC_AUTH_MODE=credentials
+  MC_USERNAME=you@example.com
+  MC_PASSWORD=your-password
+  MC_BASE_URL=https://www.missionchief.com
+  ```
+
+  The app logs in itself (scraping and submitting the real sign-in form) and caches the
+  resulting session in `MC_STORAGE_STATE_PATH` (default `storage_state.json`) so it doesn't have
+  to log in again every run — it only re-logs-in automatically once that cached session expires.
+
+  **Security tradeoff:** this stores your password in plaintext in `.env`. It's gitignored and
+  `chmod 600` locks it to your user, but it's still plaintext on disk. If that's not acceptable
+  for your setup, use cookie mode instead.
+
+  **Note:** MissionChief's actual login page/form has never been captured and verified against
+  this code — it works by scraping whatever form is present on `/users/sign_in` at runtime rather
+  than assuming field names, but this hasn't been tested against the real site yet. If it fails,
+  the error message will say whether it's bad credentials, a missing form, or something
+  unexpected; please report back what you see so this can be fixed against real data.
+
+- **`cookie`** — paste a session cookie you copied yourself:
+
+  ```dotenv
+  MC_AUTH_MODE=cookie
+  MC_SESSION_COOKIE=paste_your_full_cookie_header_here
+  MC_BASE_URL=https://www.missionchief.com
+  ```
+
+  Get it from your browser: log into MissionChief, open DevTools (F12) → Network tab, click any
+  request to `missionchief.com`, find the `Cookie` request header under Headers, and copy its
+  full value (looks like `_missionchief_session=...; other_cookie=...`).
+
+- **`playwright`** — interactive browser login, see the next section.
 
 If you're on a different localized MissionChief domain (Leitstellenspiel, missionchief.co.uk,
-etc.), change `MC_BASE_URL` to match.
+etc.), change `MC_BASE_URL` to match, for any auth mode.
 
 ### 5. About Playwright mode on a headless server
 
@@ -163,9 +190,12 @@ duplicates local records.
 
 ### 7. Re-authenticating when your session expires
 
-If `sync` fails with an authentication error (expired/invalid cookie), it will tell you plainly
+If `sync` fails with an authentication error (expired/invalid session), it will tell you plainly
 instead of failing silently. Fix it by:
 
+- **Credentials mode:** nothing to do — it re-logs-in automatically using `MC_USERNAME`/
+  `MC_PASSWORD` when the cached session expires. If it still fails, the credentials themselves
+  are likely wrong, or MissionChief is blocking the automated login (see the note above).
 - **Cookie mode:** grab a fresh `Cookie` header value from your browser and update
   `MC_SESSION_COOKIE` in `.env`.
 - **Playwright mode:** re-run `mc-autobuilder login` (on a machine with a display) to refresh

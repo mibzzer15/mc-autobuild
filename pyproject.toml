@@ -8,6 +8,7 @@ dependencies = [
     "typer>=0.12",
     "SQLAlchemy>=2.0",
     "PyYAML>=6.0",
+    "beautifulsoup4>=4.12",
 ]
 
 [project.optional-dependencies]

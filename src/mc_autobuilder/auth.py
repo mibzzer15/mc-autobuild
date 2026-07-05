@@ -1,8 +1,15 @@
-"""Session/auth handling for MissionChief: cookie mode or Playwright interactive login.
+"""Session/auth handling for MissionChief: username/password, a pasted session cookie, or
+Playwright interactive login.
 
 See docs/missionchief-api.md for the confirmed auth mechanism: a Rails session cookie plus
 an `X-CSRF-Token` header whose value is also embedded as `<meta name="csrf-token">` on every
 authenticated page.
+
+The username/password sign-in *form itself* (docs/missionchief-api.md's "not yet captured"
+list) has never been captured live, so `login_with_credentials` below does not hardcode field
+names — it scrapes whatever form is actually on the sign-in page at runtime (action URL, hidden
+tokens, and the real email/password field names) and submits that. This needs a real test run
+against the live site to confirm it actually works; it hasn't been verified end-to-end.
 """
 from __future__ import annotations
 
@@ -11,21 +18,29 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
+from bs4 import BeautifulSoup
 
 from .constants import DEFAULT_BASE_URL
 
 CSRF_META_RE = re.compile(r'<meta name="csrf-token" content="([^"]+)"')
 
 # Substrings that only appear on MissionChief's logged-out / sign-in page, never on an
-# authenticated page or a JSON API response.
+# authenticated page or a JSON API response. Best-effort/unconfirmed (see module docstring).
 LOGIN_PAGE_MARKERS = ("user_session_email", "user[email]", "/users/sign_in")
+
+ALERT_TEXT_RE = re.compile(r'class="[^"]*alert[^"]*"[^>]*>\s*([^<]{3,200})<')
 
 
 class SessionExpiredError(RuntimeError):
     """Raised when the MissionChief session is missing, invalid, or has expired."""
+
+
+class LoginFailedError(SessionExpiredError):
+    """Raised when a username/password login attempt didn't succeed (bad credentials, changed
+    login form, CAPTCHA/2FA, etc.)."""
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
@@ -53,6 +68,8 @@ class AuthConfig:
     base_url: str
     auth_mode: str
     session_cookie: str | None
+    username: str | None
+    password: str | None
     storage_state_path: Path
 
     @classmethod
@@ -62,6 +79,8 @@ class AuthConfig:
             base_url=values.get("MC_BASE_URL", DEFAULT_BASE_URL),
             auth_mode=values.get("MC_AUTH_MODE", "cookie"),
             session_cookie=values.get("MC_SESSION_COOKIE") or None,
+            username=values.get("MC_USERNAME") or None,
+            password=values.get("MC_PASSWORD") or None,
             storage_state_path=Path(values.get("MC_STORAGE_STATE_PATH", "storage_state.json")),
         )
 
@@ -79,12 +98,10 @@ def _cookie_header_to_jar(cookie_header: str, domain: str) -> requests.cookies.R
 
 
 def _storage_state_to_jar(storage_state_path: Path, host: str) -> requests.cookies.RequestsCookieJar:
-    """Load cookies for `host` out of a Playwright `storage_state.json` file."""
+    """Load cookies for `host` out of a Playwright-style `storage_state.json` file (also used
+    to cache sessions established via username/password login — see `_save_session_cookies`)."""
     if not storage_state_path.exists():
-        raise SessionExpiredError(
-            f"No saved Playwright session found at {storage_state_path}. "
-            "Run `mc-autobuilder login` to log in interactively first."
-        )
+        raise SessionExpiredError(f"No saved session found at {storage_state_path}.")
     data = json.loads(storage_state_path.read_text())
     jar = requests.cookies.RequestsCookieJar()
     for cookie in data.get("cookies", []):
@@ -97,11 +114,18 @@ def _storage_state_to_jar(storage_state_path: Path, host: str) -> requests.cooki
                 path=cookie.get("path", "/"),
             )
     if not jar:
-        raise SessionExpiredError(
-            f"No cookies for {host} found in {storage_state_path}. "
-            "Run `mc-autobuilder login` again to refresh the saved session."
-        )
+        raise SessionExpiredError(f"No cookies for {host} found in {storage_state_path}.")
     return jar
+
+
+def _save_session_cookies(jar: requests.cookies.RequestsCookieJar, path: Path) -> None:
+    """Persist a session's cookies in the same shape as Playwright's storage_state.json, so a
+    credentials-mode login doesn't have to re-authenticate with a POST on every run."""
+    cookies = [
+        {"name": c.name, "value": c.value, "domain": c.domain, "path": c.path or "/"} for c in jar
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"cookies": cookies}))
 
 
 def extract_csrf_token(html: str) -> str:
@@ -110,7 +134,7 @@ def extract_csrf_token(html: str) -> str:
     if not match:
         raise SessionExpiredError(
             "Could not find a CSRF token on the MissionChief homepage — the session is likely "
-            "invalid or expired. Please refresh MC_SESSION_COOKIE or re-run `mc-autobuilder login`."
+            "invalid or expired."
         )
     return match.group(1)
 
@@ -119,14 +143,13 @@ def check_session_alive(response: requests.Response) -> None:
     """Raise SessionExpiredError if a response looks like a logged-out/login page."""
     if response.status_code in (401, 403):
         raise SessionExpiredError(
-            f"MissionChief returned HTTP {response.status_code} — the session has likely expired. "
-            "Please refresh MC_SESSION_COOKIE or re-run `mc-autobuilder login`."
+            f"MissionChief returned HTTP {response.status_code} — the session has likely expired."
         )
     text_sample = response.text[:5000] if response.text else ""
     if any(marker in text_sample for marker in LOGIN_PAGE_MARKERS):
         raise SessionExpiredError(
             "MissionChief returned a login page instead of the expected content — the session has "
-            "expired. Please refresh MC_SESSION_COOKIE or re-run `mc-autobuilder login`."
+            "expired."
         )
 
 
@@ -136,8 +159,90 @@ def fetch_csrf_token(session: requests.Session, base_url: str) -> str:
     return extract_csrf_token(resp.text)
 
 
+def _has_password_form(html: str) -> bool:
+    soup = BeautifulSoup(html, "html.parser")
+    return any(form.find("input", attrs={"type": "password"}) for form in soup.find_all("form"))
+
+
+def _find_login_form(html: str, base_url: str) -> tuple[str, dict[str, str], str, str]:
+    """Locate the sign-in form on a page. Returns (action_url, other_fields, identifier_field_name,
+    password_field_name). Scrapes the real form rather than assuming Devise's usual
+    `user[email]`/`user[password]` names, since this page has never been captured live."""
+    soup = BeautifulSoup(html, "html.parser")
+    form = None
+    password_field = None
+    for candidate in soup.find_all("form"):
+        pw_input = candidate.find("input", attrs={"type": "password"})
+        if pw_input and pw_input.get("name"):
+            form = candidate
+            password_field = pw_input["name"]
+            break
+
+    if form is None:
+        raise LoginFailedError(
+            "Could not find a login form with a password field on the sign-in page. "
+            "MissionChief's login page may differ from what this code expects — please open "
+            "an issue with a copy of the sign-in page's HTML."
+        )
+
+    fields: dict[str, str] = {}
+    identifier_field = None
+    for inp in form.find_all("input"):
+        name = inp.get("name")
+        if not name:
+            continue
+        input_type = (inp.get("type") or "text").lower()
+        if input_type == "submit":
+            continue
+        fields[name] = inp.get("value", "")
+        if input_type in ("email", "text") and identifier_field is None and name != password_field:
+            identifier_field = name
+
+    if identifier_field is None:
+        raise LoginFailedError(
+            "Could not find a username/email field on the sign-in form. "
+            "MissionChief's login page may differ from what this code expects — please open "
+            "an issue with a copy of the sign-in page's HTML."
+        )
+
+    action = form.get("action") or "/users/sign_in"
+    action_url = urljoin(base_url, action)
+    return action_url, fields, identifier_field, password_field
+
+
+def login_with_credentials(session: requests.Session, base_url: str, username: str, password: str) -> None:
+    """Log in with a username/password by scraping and submitting the real sign-in form.
+
+    NOTE: unverified against the live site — the sign-in page was never captured (see
+    docs/missionchief-api.md). If this breaks, the most likely cause is that the real field
+    names, form action, or a CAPTCHA/2FA step differ from what's assumed here.
+    """
+    sign_in_url = urljoin(base_url, "/users/sign_in")
+    resp = session.get(sign_in_url, timeout=30)
+    if resp.status_code == 404:
+        resp = session.get(base_url, timeout=30)
+    resp.raise_for_status()
+
+    action_url, fields, identifier_field, password_field = _find_login_form(resp.text, base_url)
+    fields[identifier_field] = username
+    fields[password_field] = password
+
+    login_resp = session.post(action_url, data=fields, timeout=30)
+    login_resp.raise_for_status()
+
+    if _has_password_form(login_resp.text):
+        alert_match = ALERT_TEXT_RE.search(login_resp.text)
+        detail = (
+            f" MissionChief said: {alert_match.group(1).strip()}"
+            if alert_match
+            else " (still on the sign-in page after submitting — check MC_USERNAME/MC_PASSWORD, "
+            "or the account may require a CAPTCHA/2FA step this tool can't complete)"
+        )
+        raise LoginFailedError(f"Login failed.{detail}")
+
+
 def build_session(config: AuthConfig) -> requests.Session:
-    """Build an authenticated `requests.Session` for either auth mode, with a CSRF token attached."""
+    """Build an authenticated `requests.Session` for any auth mode, with a CSRF token attached."""
     host = urlparse(config.base_url).netloc
 
     session = requests.Session()
@@ -153,13 +258,37 @@ def build_session(config: AuthConfig) -> requests.Session:
         if not config.session_cookie:
             raise SessionExpiredError(
                 "MC_SESSION_COOKIE is not set. Paste your MissionChief session cookie into .env, "
-                "or set MC_AUTH_MODE=playwright and run `mc-autobuilder login`."
+                "set MC_AUTH_MODE=credentials with MC_USERNAME/MC_PASSWORD, or set "
+                "MC_AUTH_MODE=playwright and run `mc-autobuilder login`."
             )
         session.cookies = _cookie_header_to_jar(config.session_cookie, host)
+
     elif config.auth_mode == "playwright":
-        session.cookies = _storage_state_to_jar(config.storage_state_path, host)
+        try:
+            session.cookies = _storage_state_to_jar(config.storage_state_path, host)
+        except SessionExpiredError as exc:
+            raise SessionExpiredError(
+                f"{exc} Run `mc-autobuilder login` to log in interactively first."
+            ) from exc
+
+    elif config.auth_mode == "credentials":
+        if not (config.username and config.password):
+            raise SessionExpiredError(
+                "MC_AUTH_MODE=credentials requires both MC_USERNAME and MC_PASSWORD in .env."
+            )
+        try:
+            session.cookies = _storage_state_to_jar(config.storage_state_path, host)
+            session.headers["X-CSRF-Token"] = fetch_csrf_token(session, config.base_url)
+            return session  # cached session from a previous login is still valid
+        except SessionExpiredError:
+            pass  # no cache, or it expired — fall through to a fresh login
+        login_with_credentials(session, config.base_url, config.username, config.password)
+        _save_session_cookies(session.cookies, config.storage_state_path)
+
     else:
-        raise ValueError(f"Unknown MC_AUTH_MODE: {config.auth_mode!r} (expected 'cookie' or 'playwright')")
+        raise ValueError(
+            f"Unknown MC_AUTH_MODE: {config.auth_mode!r} (expected 'cookie', 'credentials', or 'playwright')"
+        )
 
     session.headers["X-CSRF-Token"] = fetch_csrf_token(session, config.base_url)
     return session

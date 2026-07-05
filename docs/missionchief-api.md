@@ -46,6 +46,24 @@ MissionChief is a standard Rails app and uses two cooperating mechanisms:
    external sync — not resent to missionchief.com anywhere in the capture. Not required for our
    auth flow; documented for completeness only.
 
+### Username/password login form — **not captured, unconfirmed**
+
+Every capture we have is from an already-authenticated session, so the actual sign-in page
+(`/users/sign_in`, guessed by Rails/Devise convention — MissionChief's login page markers we've
+seen in logged-out redirects reference this path, but the page itself was never loaded and
+inspected) has never been seen. `auth.py`'s `login_with_credentials` therefore does not hardcode
+field names — it fetches `/users/sign_in`, scrapes whatever `<form>` contains a password input
+(action URL, hidden fields like the CSRF token, and the actual identifier/password field names),
+fills in the username/password, and submits it. It detects success/failure by checking whether a
+password-field form is still present in the response (still on the sign-in page = failed).
+
+This is a reasonable best-effort approach but is **untested against the real site** — this
+sandbox can't reach `missionchief.com` to verify it, and no capture of the real login page exists
+yet. If it doesn't work in practice, the most likely causes are: a different form structure than
+assumed, a CAPTCHA or 2FA step, or a login path other than `/users/sign_in`. A capture of the
+real sign-in page (HTML) and a login POST/response would let this be hardened with confirmed
+values instead of runtime discovery.
+
 ## Confirmed read endpoints
 
 ### `GET /api/buildings`
