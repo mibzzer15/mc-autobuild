@@ -1,0 +1,35 @@
+{
+    "total_count": 320,
+    "pois": [
+        {
+            "id": 1,
+            "name": "Incident Control Point",
+            "lat": -43.2088427,
+            "lng": 171.7146897,
+            "address": "BMX/Pump Track, Castle Hill Village, Selwyn District, Canterbury, 7580, New Zealand / Aotearoa",
+            "osm_id": 961854893,
+            "osm_type": "way",
+            "status": "operational"
+        },
+        {
+            "id": 2,
+            "name": "JRCC Tahiti",
+            "lat": -17.5274728,
+            "lng": -149.5337775,
+            "address": "JRCC Tahiti, Acc. Zone Militaire, Papaoa, \u02bb\u0100rue, \u00celes du Vent, Polyn\u00e9sie Fran\u00e7aise, 98701, France",
+            "osm_id": 7108300388,
+            "osm_type": "node",
+            "status": "operational"
+        },
+        {
+            "id": 3,
+            "name": "CROSS La Runion",
+            "lat": -20.9336498,
+            "lng": 55.2881759,
+            "address": "CROSS La R\u00e9union, Rue Amiral Bosse, Port R\u00e9union Ouest, Le Port, Saint-Paul, La R\u00e9union, 97420, France",
+            "osm_id": 7108300389,
+            "osm_type": "node",
+            "status": "operational"
+        }
+    ]
+}

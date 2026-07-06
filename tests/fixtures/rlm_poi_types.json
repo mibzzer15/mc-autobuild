@@ -1,0 +1,62 @@
+[
+    {
+        "table_name": "poi_fire_station",
+        "friendly_name": "Fire Stations",
+        "emoji": "\ud83d\ude92",
+        "osm_tag": "emergency=fire_station"
+    },
+    {
+        "table_name": "poi_police",
+        "friendly_name": "Police Stations",
+        "emoji": "\ud83d\udc6e",
+        "osm_tag": "amenity=police"
+    },
+    {
+        "table_name": "poi_ambulance_station",
+        "friendly_name": "Ambulance Stations",
+        "emoji": "\ud83d\ude91",
+        "osm_tag": "emergency=ambulance_station"
+    },
+    {
+        "table_name": "poi_disaster_response",
+        "friendly_name": "Disaster Response",
+        "emoji": "\ud83d\udea8",
+        "osm_tag": "emergency=disaster_response"
+    },
+    {
+        "table_name": "poi_control_centre",
+        "friendly_name": "Control Centers",
+        "emoji": "\ud83d\udce1",
+        "osm_tag": "emergency=control_centre"
+    },
+    {
+        "table_name": "poi_hospital",
+        "friendly_name": "Hospitals",
+        "emoji": "\ud83c\udfe5",
+        "osm_tag": "amenity=hospital"
+    },
+    {
+        "table_name": "poi_prison",
+        "friendly_name": "Prisons",
+        "emoji": "\ud83d\udd12",
+        "osm_tag": "amenity=prison"
+    },
+    {
+        "table_name": "poi_lifeguard",
+        "friendly_name": "Lifeguard Stations",
+        "emoji": "\ud83c\udfca",
+        "osm_tag": "emergency=lifeguard"
+    },
+    {
+        "table_name": "poi_mountain_rescue",
+        "friendly_name": "Mountain Rescue",
+        "emoji": "\u26f0\ufe0f",
+        "osm_tag": "emergency=mountain_rescue"
+    },
+    {
+        "table_name": "poi_doctors",
+        "friendly_name": "Doctors/Clinics",
+        "emoji": "\ud83d\udc68\u200d\u2695\ufe0f",
+        "osm_tag": "amenity=doctors"
+    }
+]

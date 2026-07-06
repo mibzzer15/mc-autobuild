@@ -1,0 +1,2248 @@
+<div class="panel panel-default">
+  <div class="panel-heading big_map_window_head" id="building_panel_heading">
+    New building 
+  </div>
+  <div class="panel-body" id="building_panel_body">
+    <form accept-charset="UTF-8" action="/buildings" class="simple_form form-vertical ajax building-form" id="new_building" method="post" novalidate="novalidate"><div style="margin:0;padding:0;display:inline"><input name="utf8" type="hidden" value="&#x2713;" /><input name="authenticity_token" type="hidden" value="SCRUBBED_CSRF_TOKEN" /></div>
+
+      <div class="row">
+        <div class="
+          col-md-11 col-xs-11
+          ">
+          <div id="select_building_type_step" data-tutorial-enabled-buildings="">
+
+            <div class="input-group select required building_building_type">
+              <div class="input-group-addon">
+                <label class="integer required  select required " for="building_building_type"><abbr title="required">*</abbr> Type of building</label>
+              </div>
+
+              <select class="select required form-control" id="building_building_type" name="building[building_type]"><option value=""></option>
+<option value="1">Dispatch Center</option>
+<option value="0">Fire station</option>
+<option value="13">Fire station (Small station)</option>
+<option value="4">Fire academy</option>
+<option value="3">Ambulance station</option>
+<option value="16">Ambulance station (Small station)</option>
+<option value="2">Hospital</option>
+<option value="14">Clinic</option>
+<option value="19">Rescue (EMS) academy</option>
+<option value="7">Police academy</option>
+<option value="5">Police station</option>
+<option value="15">Police station (Small station)</option>
+<option value="8">Police Aviation</option>
+<option value="6">Medical helicopter station</option>
+<option value="12">Rescue boat dock</option>
+<option value="11">Fire boat dock</option>
+<option value="23">Coastal Rescue Station</option>
+<option value="26">Lifeguard Post</option>
+<option value="24">Coastal Rescue School</option>
+<option value="25">Coastal Air Station</option>
+<option value="9">Staging area</option>
+<option value="17">Firefighting plane station</option>
+<option value="18">Federal Police Station</option>
+<option value="22">Fire Marshal&#39;s Office</option>
+<option value="10">Prison</option>
+<option value="27">Tow Truck Station</option>
+<option value="28">Mountain Rescue Station</option></select>
+
+            </div>
+          </div>
+
+          <div id="building_name_step">
+            <div class="input-group string required building_name"><label class="input-group-addon string required " for="building_name"><abbr title="required">*</abbr> Name</label><input class="string required form-control" id="building_name" maxlength="40" name="building[name]" size="40" type="text" /></div>
+          </div>
+          <div class="input-group hidden building_latitude"><input class="hidden form-control" id="building_latitude" name="building[latitude]" type="hidden" /></div>
+          <div class="input-group hidden building_longitude"><input class="hidden form-control" id="building_longitude" name="building[longitude]" type="hidden" /></div>
+          <input id="build_with_coins" name="build_with_coins" type="hidden" />
+          <input id="build_as_alliance" name="build_as_alliance" type="hidden" />
+
+          <div id="address_forms" style="display:none;">
+            <div class="input-group string optional readonly building_address"><label class="input-group-addon string optional " for="building_address">Address</label><input class="string optional readonly form-control" id="building_address" name="building[address]" readonly="readonly" type="text" /></div>
+          </div>
+
+          <div class="alert alert-info" id="building_new_info_message">Move the point to your desired location on the map.</div>
+
+            <div id="select_building_dispatch_center_step">
+              <div class="input-group select required building_building_type">
+                <div class="input-group-addon">
+                  <label class="integer optional  select required " for="building_leitstelle_building_id">Assigned Dispatch Center</label>
+                </div>
+
+                <select id="building_leitstelle_building_id" name="building[leitstelle_building_id]"><option value=""></option>
+<option value="376606">Test Dispatch 1</option>
+<option value="2634250">Test Dispatch 2</option>
+<option value="1019630">Test Dispatch 3</option>
+<option value="2811887">Test Dispatch 4</option>
+<option value="2814860">Test Dispatch 5</option>
+<option value="1573361">Test Dispatch 6</option>
+<option value="2296091">Test Dispatch 7</option>
+<option value="2572787">Test Dispatch 8</option>
+<option value="1538453">Test Dispatch 9</option>
+<option value="2387014">Test Dispatch 10</option>
+<option value="2018584">US Dispatch 1</option>
+<option value="2018638">US Dispatch 2</option>
+<option value="2018639">US Dispatch 3</option>
+<option value="2018640">US Dispatch 4</option>
+<option value="2018641">US Dispatch 5</option>
+<option value="2609655">US Dispatch 6</option>
+<option value="2609674">US Dispatch 7</option></select>
+
+              </div>
+            </div>
+
+            <div id="detail_1" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+              <div id="purchase_btns_1" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_1" name="commit" type="submit" value="Build 0 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 0 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_0" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+                          <div class="input-group select optional building_start_vehicle_feuerwache">
+                            <div class="input-group-addon">
+                              <label class="string optional  select required" for="building_start_vehicle_feuerwache">Start Vehicle</label>
+                            </div>
+                            <select id="building_start_vehicle_feuerwache" name="building[start_vehicle_feuerwache]"><option value=""></option>
+<option value="0">Type 1 fire engine</option>
+<option value="1">Type 2 fire engine</option>
+<option value="13">Quint</option>
+<option value="18">Rescue Engine</option></select>
+                          </div>
+
+
+                  </div>
+
+
+              <div id="purchase_btns_0" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_0" name="commit" type="submit" value="Build 2,066,894 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 15 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_13" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+                          <div class="input-group select optional building_start_vehicle_feuerwache_kleinwache">
+                            <div class="input-group-addon">
+                              <label class="string optional  select required" for="building_start_vehicle_feuerwache_kleinwache">Start Vehicle</label>
+                            </div>
+                            <select id="building_start_vehicle_feuerwache_kleinwache" name="building[start_vehicle_feuerwache_kleinwache]"><option value=""></option>
+<option value="0">Type 1 fire engine</option>
+<option value="1">Type 2 fire engine</option>
+<option value="13">Quint</option>
+<option value="18">Rescue Engine</option></select>
+                          </div>
+
+                          <div class="alert alert-info">A small fire station allows up to 6 vehicles to be purchased after the building is fully expanded. Extensions are limited in a small station. However, small stations can be upgraded to regular ones at a later stage.</div>
+                  </div>
+
+
+              <div id="purchase_btns_13" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_13" name="commit" type="submit" value="Build 1,000,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 13 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_4" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_4" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_4" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 500,000 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_3" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_3" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_3" name="commit" type="submit" value="Build 200,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_16" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_16" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_16" name="commit" type="submit" value="Build 100,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 13 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_2" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_2" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_2" name="commit" type="submit" value="Build 200,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 200,000 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_14" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_14" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_14" name="commit" type="submit" value="Build 100,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 13 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_19" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_19" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_19" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 500,000 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_7" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_7" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_7" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 500,000 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_5" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_5" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_5" name="commit" type="submit" value="Build 1,662,756 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_15" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_15" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_15" name="commit" type="submit" value="Build 831,378 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 13 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_8" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+              <div id="purchase_btns_8" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_8" name="commit" type="submit" value="Build 1,000,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_6" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+              <div id="purchase_btns_6" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_6" name="commit" type="submit" value="Build 1,000,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_12" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_12" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_12" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_11" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_11" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_11" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_23" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_23" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_23" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_26" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_26" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_26" name="commit" type="submit" value="Build 50,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_24" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_24" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_24" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 500,000 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_25" class="building_build_costs" style="">
+
+                  <div class="alert alert-danger">
+                    You can currently only build 4 Coastal Air Station(s). (1 plus 1 additional per 6 Coastal Rescue Stations can be built.)
+                  </div>
+
+              <div id="purchase_btns_25" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" disabled="disabled" id="build_credits_25" name="commit" type="submit" value="Build 1,000,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" disabled="disabled" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_9" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_9" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_9" name="commit" type="submit" value="Build 0 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 0 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 0 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_17" class="building_build_costs" style="">
+
+
+
+              <div id="purchase_btns_17" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_17" name="commit" type="submit" value="Build 1,500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 33 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_18" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_18" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_18" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_22" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_22" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_22" name="commit" type="submit" value="Build 250,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 15 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_10" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+                  </div>
+
+
+              <div id="purchase_btns_10" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step hidden col-xs-5" disabled="disabled" id="build_credits_10" name="commit" type="submit" value="Build 100,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate hidden col-xs-5" disabled="disabled" name="commit" type="submit" value="Build 1 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+
+                <div class="alert alert-info">
+                  This building is an alliance building and can only be bought with alliance funds.
+                </div>
+                <h3>Build as Alliance Building</h3>
+
+                  <input class="btn btn-success btn alliance_activate" name="commit" type="submit" value="Build 100,000 Credits" />
+                <br><br>
+            </div>
+
+
+            <div id="detail_27" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_27" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_27" name="commit" type="submit" value="Build 300,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 18 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+            <div id="detail_28" class="building_build_costs" style="">
+
+                  <div class="form-actions">
+
+
+                  </div>
+
+
+              <div id="purchase_btns_28" style="margin-bottom: 5px;">
+                
+<div class="building-price-button-group row">
+  <input class="btn btn-success btn build_with_credits_step  col-xs-5" id="build_credits_28" name="commit" type="submit" value="Build 500,000 Credits" />
+
+  <input class="btn btn-success btn coins_activate  col-xs-5" name="commit" type="submit" value="Build 25 Coins" />
+</div>
+
+
+
+<style>
+  .building-price-button-group {
+      display: flex;
+      justify-content: space-between;
+      margin-left: -1rem;
+      margin-right: -1rem;
+      gap: 10px;
+
+      .btn {
+          flex: 1;
+          width: 100%;
+      }
+  }
+
+  .building-discount-group {
+      margin-left: 1px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      color: #676767;
+  }
+
+  .building-discount-percent {
+      display: inline-block;
+      background-color: #dc3545;
+      color: white;
+      font-size: 1.2rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+  }
+
+  .strikethrough {
+      text-decoration: line-through;
+      color: #b0b0b0;
+  }
+</style>
+
+              </div>
+
+            </div>
+
+
+
+
+          <div class="row">
+            <div class="col-md-3 col-xs-3">
+              <div class="form-actions">
+                <a class="btn btn-default ajax" href="/buildings" id="building_back_button">Back</a>
+              </div>
+            </div>
+
+            <div class="col-md-5 col-xs-8">
+              <label class="checkbox-inline">
+                <input id="build_another" type="checkbox" name="build_another" class=""  />
+                Build another building after this
+              </label>
+            </div>
+          </div>
+        </div>
+
+          <div class="col-md-1 col-xs-1" style="padding-left: 0px;padding-right: 0px;">
+            <div id='tooltip-building' class="hidden tooltip-mc">
+              <img src="/images/info_light.png" style="width: 18px;height:18px;margin-top: 7px">
+            </div>
+          </div>
+
+      </div>
+
+</form>  </div>
+</div>
+
+<script type="text/javascript">
+    var building_new_marker;
+
+    building_eval_unload = "if(typeof(mapkit) == 'undefined'){if(typeof(building_new_marker) != 'undefined'){map.removeLayer(building_new_marker);}}else{if(typeof(building_new_marker) != 'undefined'){map.removeAnnotation(building_new_marker);}}bigMapWindowSizeChanged();";
+
+    $('#building_building_type').on('change', function () {
+        if (mobile_bridge_use === true && mobile_version === 4) {
+            $('#tooltip-building').removeClass('hidden');
+        } else {
+
+            let building_type_id = parseInt($(this).val());
+
+            if (building_type_id === 0) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.firehouse.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 1) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.dispatch_center.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 2) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.hospital.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 3) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.ambulance_station.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 4) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.fireschool.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 5) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.police_station.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 6) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.rescue_copter_station.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 7) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.police_school.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 8) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.police_copter_station.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 9) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.staging_area.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 10) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.prison.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 11) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.fire_boat_dock.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 12) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.rescue_boat_dock.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 13) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.firehouse_small.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 14) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.clinic.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 15) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.police_small.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 16) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.ambulance_station_small.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 17) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.fire_aviation_station.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 18) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.federal_police.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 19) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.rescue_school.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 20) {
+                $('#tooltip-building').addClass('hidden');
+            }
+            if (building_type_id === 21) {
+                $('#tooltip-building').addClass('hidden');
+            }
+            if (building_type_id === 22) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.fire_investigation.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 23) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.coastal_rescue.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 24) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.water_rescue_school.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 25) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.water_rescue_heliport.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 26) {
+                $('#tooltip-building').attr('data-tip', I18n.t('tutorial.beginner.building.tooltip.coastal_rescue_small.short'));
+                $('#tooltip-building').removeClass('hidden');
+            }
+            if (building_type_id === 27) {
+                $('#tooltip-building').addClass('hidden');
+            }
+            if (building_type_id === 28) {
+                $('#tooltip-building').addClass('hidden');
+            }
+        }
+        ;
+    });
+
+    $('#tooltip-building').on('click', function () {
+        let building_id = parseInt($('#building_building_type').val());
+        let url = '';
+        let helpshift_id = null;
+
+        if (building_id === 0) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-fire-station";
+            helpshift_id = "1709";
+        }
+        if (building_id === 1) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=gameplay&f=what-is-the-dispatch-center-good-for";
+            helpshift_id = "1497";
+        }
+        if (building_id === 2) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-hospital";
+            helpshift_id = "1718";
+        }
+        if (building_id === 3) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-an-ambulance-station";
+            helpshift_id = "1714";
+        }
+        if (building_id === 4) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-fire-academy";
+            helpshift_id = "1711";
+        }
+        if (building_id === 5) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-police-station";
+            helpshift_id = "1722";
+        }
+        if (building_id === 6) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-helicopter-station";
+            helpshift_id = "1720";
+        }
+        if (building_id === 7) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-police-academy";
+            helpshift_id = "1724";
+        }
+        if (building_id === 8) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1731-what-is-a-police-helicopter-station/?p=all&s=buildings&f=what-is-a-police-station";
+            helpshift_id = "1731";
+        }
+        if (building_id === 9) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-staging-area";
+            helpshift_id = "1732";
+        }
+        if (building_id === 10) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-prison";
+            helpshift_id = "1734";
+        }
+        if (building_id === 11) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-fire-boat-dock";
+            helpshift_id = "1713";
+        }
+        if (building_id === 12) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-rescue-boat-dock";
+            helpshift_id = "1717";
+        }
+        if (building_id === 13) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1710-what-is-a-small-fire-station/?p=all&s=buildings&f=what-is-a-fire-station";
+            helpshift_id = "1710";
+        }
+        if (building_id === 14) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-clinic";
+            helpshift_id = "1719";
+        }
+        if (building_id === 15) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-small-police-station";
+            helpshift_id = "1723";
+        }
+        if (building_id === 16) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-small-ambulance-station";
+            helpshift_id = "1715";
+        }
+        if (building_id === 17) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-firefighting-plane-station";
+            helpshift_id = "1712";
+        }
+        if (building_id === 18) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-the-federal-police";
+            helpshift_id = "1725";
+        }
+        if (building_id === 19) {
+            url = "https://xyrality.helpshift.com/a/mission-chief/?p=all&s=buildings&f=what-is-a-rescue-academy";
+            helpshift_id = "1716";
+        }
+        if (building_id === 22) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1745-what-is-an-fire-marshall-s-office-us-version/?p=all";
+            helpshift_id = "1745";
+        }
+        if (building_id === 23) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1832-what-is-a-coastal-rescue-station/?p=alll";
+            helpshift_id = "1832";
+        }
+        if (building_id === 24) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1834-what-is-a-coastal-rescue-academy/?p=alll";
+            helpshift_id = "1834";
+        }
+        if (building_id === 25) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1835-what-is-a-coastal-air-station/?p=all";
+            helpshift_id = "1835";
+        }
+        if (building_id === 26) {
+            url = "https://xyrality.helpshift.com/hc/en/23-mission-chief/faq/1833-what-is-a-lifeguard-post/?p=alll";
+            helpshift_id = "1833";
+        }
+
+        openHelpshiftArticle(url, helpshift_id);
+    });
+
+    $(window).ready(function () {
+        $("#new_building").on("keypress", function (event) {
+            let keyPressed = event.keyCode || event.which;
+            if (keyPressed === 13) {
+                event.preventDefault();
+                return false;
+            }
+        });
+    });
+
+
+    $(function () {
+        mapViewRestore();
+
+        disableEnterSubmit();
+
+
+        $("#building_start_vehicle_feuerwache").change(function () {
+
+            var priceChanged = false;
+
+            if ($(this).val() == 13) {
+                $(".building_costs_credits_0").html("2,080,894");
+                priceChanged = true;
+                $("#build_credits_0").val("Build 2,080,894 Credits");
+
+            }
+
+            if ($(this).val() == 18) {
+                $(".building_costs_credits_0").html("2,080,894");
+                priceChanged = true;
+                $("#build_credits_0").val("Build 2,080,894 Credits");
+
+            }
+
+
+            if (!priceChanged) {
+                $(".building_costs_credits_0").html("2,066,894");
+                $("#build_credits_0").val("Build 2,066,894 Credits");
+                if (true) {
+                    $("#build_credits_0").addClass("btn-success")
+                      .removeClass("btn-danger")
+                      .removeAttr('disabled');
+                } else {
+                    $("#build_credits_0")
+                      .attr('disabled', 'disabled');
+                }
+            }
+        });
+
+
+        $("#building_start_vehicle_feuerwache_kleinwache").change(function () {
+
+            var priceChanged = false;
+            if ($(this).val() == 13) {
+                $(".building_costs_credits_13").html("1,014,000");
+                priceChanged = true;
+                $("#build_credits_13").val("Build 1,014,000 Credits");
+
+            }
+
+            if ($(this).val() == 18) {
+                $(".building_costs_credits_13").html("1,014,000");
+                priceChanged = true;
+                $("#build_credits_13").val("Build 1,014,000 Credits");
+
+            }
+
+
+            if (!priceChanged) {
+                $(".building_costs_credits_13").html("1,000,000");
+                $("#build_credits_13").val("Build 1,000,000 Credits");
+                if (true) {
+                    $("#build_credits_13").addClass("btn-success")
+                      .removeClass("btn-danger")
+                      .removeAttr('disabled');
+                } else {
+                    $("#build_credits_13")
+                      .attr('disabled', 'disabled');
+                }
+                ;
+            }
+        });
+
+        if (typeof (prepared_position) != "undefined") {
+            $("#building_latitude").val(prepared_position["latitude"]);
+            $("#building_longitude").val(prepared_position["longitude"]);
+            updateAddress();
+            $("#building_new_info_message").hide();
+        } else {
+            if (isLeaflet()) {
+                if ($('#build_another').is(':checked')) {
+                    var building_coordinates = L.latLng(0.0, 0.0);
+                    building_new_marker = L.marker(building_coordinates, {
+                        draggable: true,
+                        zIndexOffset: 1000000
+                    }).addTo(map);
+                } else {
+                    building_new_marker = L.marker(map.getCenter(), {
+                        draggable: true,
+                        zIndexOffset: 1000000
+                    }).addTo(map);
+                }
+
+                building_new_marker.on("dragend", function (e) {
+                    building_new_dragend();
+                });
+
+
+            } else {
+                building_new_marker = new mapkit.MarkerAnnotation(map.center, {
+                    draggable: true,
+                    color: "#000000"
+                });
+
+                building_new_marker.addEventListener("drag-end", function () {
+                    building_new_dragend();
+                })
+
+                map.addAnnotation(building_new_marker);
+            }
+
+            building_new_dragend();
+
+        }
+
+
+        $(".coins_activate").click(function () {
+            if (confirm(I18n.t('common.coins_spend')) === true) {
+                $("#build_with_coins").val(1);
+            } else {
+                return false
+            }
+
+        });
+
+        $(".alliance_activate").click(function () {
+            $("#build_as_alliance").val(1);
+        });
+
+
+        if ($("#building_building_type").val() != "") {
+            $("#detail_" + $("#building_building_type").val()).addClass("building_build_costs_active");
+        }
+
+        $("#building_building_type").change(function () {
+            $(".building_build_costs").removeClass("building_build_costs_active");
+            $("#detail_" + $(this).val()).addClass("building_build_costs_active");
+
+            if ($(this).val() == 1 || $(this).val() == 10 ) {
+                $("#select_building_dispatch_center_step").hide();
+            } else {
+                $("#select_building_dispatch_center_step").show();
+            }
+        });
+
+
+    });
+
+
+    function updateAddress() {
+        try {
+
+            $.get('/reverse_address?latitude=' + $("#building_latitude").val() + "&longitude=" + $("#building_longitude").val(), function (data) {
+                $("#building_address").val(data);
+                $("#address_forms").show();
+            });
+        } catch (e) {
+
+        }
+    }
+
+
+    function building_new_dragend() {
+        var lat = 0;
+        var lng = 0;
+
+        if (isLeaflet()) {
+            position = building_new_marker.getLatLng();
+            lat = position["lat"];
+            lng = position["lng"];
+        } else {
+            position = building_new_marker.coordinate;
+            lat = position.latitude;
+            lng = position.longitude;
+        }
+
+
+        $("#building_latitude").val(lat);
+        $("#building_longitude").val(lng);
+        updateAddress();
+    }
+
+    function disableEnterSubmit() {
+        if (mobile_version != 4) {
+            return;
+        }
+
+        var enterCode = 13;
+
+        $('.building-form input').on('keyup keypress', function (e) {
+            var keyCode = e.keyCode || e.which;
+            if (keyCode === enterCode) {
+                e.preventDefault();
+                $(e.target).blur();
+                return false;
+            }
+        })
+    }
+
+
+    $('#building_start_vehicle_feuerwache').addClass('select optional form-control');
+    $('#building_start_vehicle_feuerwache_kleinwache').addClass('select optional form-control');
+    $('#start_vehicle_feuerwache_kleinwache').addClass('select optional form-control');
+    $('#building_leitstelle_building_id').addClass('select optional form-control');
+
+
+    creditsUpdate(17598648378, false)
+    coinsUpdate(3503)
+
+</script>
+

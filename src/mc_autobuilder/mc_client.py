@@ -8,14 +8,33 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass
 
 import requests
+from bs4 import BeautifulSoup
 
 from .auth import check_session_alive
 
 logger = logging.getLogger(__name__)
+
+# Confirmed in docs/missionchief-api.md: each building type on /buildings/new has its own
+# `detail_<building_type>` block with a `build_credits_<building_type>` submit button reading
+# "Build <price> Credits". Prices are dynamic (scale with account/alliance progression), so
+# they're parsed live every time rather than ever being cached or hardcoded.
+BUILD_PRICE_RE = re.compile(r"Build\s+([\d,]+)\s+Credits")
+
+
+def parse_building_prices(html: str) -> dict[int, int]:
+    soup = BeautifulSoup(html, "html.parser")
+    prices: dict[int, int] = {}
+    for button in soup.find_all("input", id=re.compile(r"^build_credits_\d+$")):
+        building_type = int(button["id"].removeprefix("build_credits_"))
+        match = BUILD_PRICE_RE.search(button.get("value", ""))
+        if match:
+            prices[building_type] = int(match.group(1).replace(",", ""))
+    return prices
 
 # Confirmed in docs/missionchief-api.md: the game's frontend JS attaches these to every AJAX
 # call to /api/*, distinct from a plain browser navigation request (see auth.py's session
@@ -82,3 +101,9 @@ class MissionChiefClient:
         """GET /api/buildings — every building owned by the authenticated account."""
         resp = self._request("GET", "/api/buildings")
         return resp.json()
+
+    def get_building_prices(self) -> dict[int, int]:
+        """GET /buildings/new — current credit price per building_type. Always live; never
+        cache across runs, since prices scale with account/alliance progression."""
+        resp = self._request("GET", "/buildings/new")
+        return parse_building_prices(resp.text)

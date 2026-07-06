@@ -1,0 +1,93 @@
+# mc-autobuilder configuration.
+#
+# Copy this file to config.yaml and edit it. config.yaml is gitignored - it's expected to
+# contain choices specific to your account/server, not secrets (those go in .env).
+#
+# Only the settings used by the `plan` command (Phase 3: dedupe + build planning) are
+# documented here. Later phases (vehicles, hiring, personnel, equipment, dispatch reassignment)
+# will extend this same file with their own sections once those commands exist - don't expect
+# them yet.
+
+mission_chief:
+  # Must match your actual MissionChief server. This is RLM's own "game_world" code (see
+  # docs/rlm-api.md) - used to look up the right building_type IDs for your server, since
+  # MissionChief's building_type numbering is confirmed to differ between servers.
+  # Known codes (only US and DE have been directly verified so far): US, UK, AU, DE, PT, ES,
+  # NL, PL, SE, IT, FR, RU, CZ, DK, JP, KR, NO, RO, SK, TR, BR, MX, UA, FI
+  game_world: "US"
+
+  # Change this if you play on a different localized MissionChief domain
+  # (e.g. https://www.leitstellenspiel.de).
+  base_url: "https://www.missionchief.com"
+
+# Which real-world regions to pull candidate stations from. Each region must specify exactly
+# ONE of: bbox, or city (+ radius_km), or center (+ radius_km).
+regions:
+  - name: "Bay Area"
+    bbox:
+      north: 38.0
+      south: 37.2
+      east: -121.7
+      west: -122.6
+
+  - name: "Sacramento"
+    city: "Sacramento, CA"   # forward-geocoded via OpenStreetMap Nominatim
+    radius_km: 20            # required when using `city`
+
+  # - name: "Around HQ"
+  #   center: {lat: 37.7749, lng: -122.4194}
+  #   radius_km: 15          # required when using `center`
+
+# Which RLM POI types to build, mapped to your server's MissionChief building_type id (from
+# `/api/building-types?game_world=<mission_chief.game_world>` - see docs/rlm-api.md), and how
+# many of each to build in a single run. poi_type keys must match a `table_name` from RLM's
+# `/api/poi-types` endpoint.
+building_types:
+  poi_fire_station:
+    building_type: 0     # Fire station (US) - confirm against your own game_world!
+    max_per_run: 5
+  poi_police:
+    building_type: 5     # Police station (US)
+    max_per_run: 5
+  poi_ambulance_station:
+    building_type: 3     # Ambulance station (US)
+    max_per_run: 5
+  poi_hospital:
+    building_type: 2     # Hospital (US)
+    max_per_run: 2
+  poi_control_centre:
+    building_type: 1     # Dispatch Center (US)
+    max_per_run: 1
+  poi_prison:
+    building_type: 10    # Prison (US)
+    max_per_run: 1
+
+# Never build a station if an existing building of the same building_type is already within
+# this many meters of the RLM candidate's coordinates. Matched by great-circle distance
+# (haversine), not by name.
+dedupe:
+  radius_m: 150
+
+naming:
+  # Available placeholders: {poi_name} (from RLM), {city} (the region's `name`, or the `city`
+  # value if the region used city-based lookup).
+  template: "{poi_name}"
+  # template: "{city} - {poi_name}"
+
+budget:
+  # Hard cap on credits the plan will allocate in one run. Prices are fetched live from
+  # /buildings/new (they scale with account progression - never hardcoded).
+  max_credits_per_run: 5000000
+  # Credits below this reserve are never touched, regardless of max_credits_per_run.
+  credit_reserve: 1000000
+
+rlm_cache:
+  # How long a cached RLM API response stays valid before being re-fetched. Keep this generous -
+  # the community database doesn't change quickly, and the project's rate-limiting requirement
+  # is to fetch each region at most once per run and cache aggressively otherwise.
+  ttl_hours: 24
+  cache_dir: ".rlm_cache"
+
+rate_limiting:
+  min_delay_seconds: 2
+  max_delay_seconds: 5

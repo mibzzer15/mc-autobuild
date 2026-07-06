@@ -15,8 +15,9 @@ database this tool builds on. See `docs/rlm-api.md` for what we've confirmed abo
   decision and risk — it may get your account warned, suspended, or banned. Nothing here is legal
   advice.
 - **Dry-run is the plan for every write-capable command** (not built yet — see Status below).
-  Nothing in the current build spends in-game currency or modifies your account; it only reads
-  `/api/buildings`.
+  Nothing in the current build spends in-game currency or modifies your account. `sync` and
+  `plan` are both read-only: `plan` fetches your current building prices to estimate cost, but
+  never submits a build.
 - Your session cookie is equivalent to your password for this game. Treat `.env` and
   `storage_state.json` like credentials: never commit them, never share them.
 
@@ -28,13 +29,14 @@ This is being built in phases; only what's actually implemented is documented be
 |---|---|---|
 | 0 | Research: RLM + MissionChief API docs | Done — `docs/rlm-api.md`, `docs/missionchief-api.md` |
 | 1 | Auth + read-only building sync | **Done** — `mc-autobuilder login` / `sync` |
-| 2 | Config schema + dedupe planner against RLM data | Not started (blocked on confirming RLM's `/api/pois` contract) |
-| 3 | Build execution (single test station) | Not started |
-| 4 | Expand / vehicles / hire / personnel / service / dispatch write actions | Not started |
-| 5 | Web dashboard | Not started |
+| 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
+| 4 | Build execution (single test station) | Not started |
+| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | Not started |
+| 6 | Web dashboard | Not started |
 
-Commands that don't exist yet: `plan`, `build`, `expand`, `vehicles`, `hire`, `assign`, `service`,
-`dispatch`, `run`. Don't expect `config.yaml` yet either — it lands with the planner in Phase 2.
+Commands that don't exist yet: `build`, `expand`, `vehicles`, `hire`, `assign`, `service`,
+`dispatch`, `run`. Nothing in the current build can spend credits or change your account —
+`plan` only reads.
 
 ## Requirements
 
@@ -186,7 +188,35 @@ referenced. A structured log for the run is written to `logs/sync_<timestamp>.lo
 Re-running `sync` is safe any time — it's read-only and upserts by building id, so it never
 duplicates local records.
 
-### 7. Re-authenticating when your session expires
+### 7. Set up `config.yaml` and generate a build plan
+
+```bash
+cp config.example.yaml config.yaml
+nano config.yaml
+```
+
+`config.example.yaml` is fully commented — set `mission_chief.game_world` to your server (RLM's
+code for it, e.g. `US` or `DE` — see `docs/rlm-api.md`), list the real-world `regions` you want to
+pull candidate stations from (a bounding box, a city name, or a center point + radius), and map
+each RLM `poi_type` you care about to your server's MissionChief `building_type` id.
+
+Then, with `sync` already run at least once (so there's something to dedupe against):
+
+```bash
+mc-autobuilder plan
+```
+
+This fetches candidate stations from RLM's public POI database for each configured region,
+skips any that are within `dedupe.radius_m` of a building you already have of the same type,
+respects each type's `max_per_run` cap and the overall `budget.max_credits_per_run`, and fetches
+your account's *current* build prices (which scale with progression, so they're never
+hardcoded) to estimate total cost. It writes the full result to `plan.json` and prints a summary
+table. **This is read-only** — it never builds anything or spends credits; that's a later phase.
+
+RLM's API responses are cached locally under `.rlm_cache/` per `rlm_cache.ttl_hours` in your
+config, so re-running `plan` doesn't re-fetch a region's data on every run.
+
+### 8. Re-authenticating when your session expires
 
 If `sync` fails with an authentication error (expired/invalid session), it will tell you plainly
 instead of failing silently. Fix it by:
@@ -228,14 +258,19 @@ pytest
 
 ```
 src/mc_autobuilder/
-  auth.py        # cookie / Playwright auth, CSRF token handling, session-expiry detection
-  mc_client.py   # rate-limited MissionChief API client
-  models.py      # SQLite/SQLAlchemy local cache
-  cli.py         # typer CLI (`login`, `sync`)
+  auth.py         # cookie / credentials / Playwright auth, CSRF token handling, session-expiry detection
+  mc_client.py    # rate-limited MissionChief API client (buildings, live build prices)
+  rlm_client.py   # RLM POI database client (bbox queries, disk caching, city geocoding)
+  planner.py      # pure dedupe/build-planning logic (haversine distance, budget/caps)
+  config.py       # config.yaml loading and validation
+  models.py       # SQLite/SQLAlchemy local cache
+  cli.py          # typer CLI (`login`, `sync`, `plan`)
+config.example.yaml
 docs/
   rlm-api.md            # RLM API research findings
   missionchief-api.md   # MissionChief API research findings
 tests/
+  fixtures/             # real (scrubbed) captures used by several tests
 ```
 
 ## Credits

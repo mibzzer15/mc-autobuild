@@ -9,3 +9,6 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+config.yaml
+plan.json
+.rlm_cache/
