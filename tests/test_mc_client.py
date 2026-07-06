@@ -13,24 +13,27 @@ from mc_autobuilder.mc_client import (
 FIXTURES = Path(__file__).parent / "fixtures"
 BUILDINGS_NEW_HTML = (FIXTURES / "buildings_new.html").read_text()
 
-# Trimmed excerpt of the real nav bar markup (2026-07 DevTools inspection of a live account).
+# Trimmed excerpt of a real captured page (2026-07): the nav bar's credits-value span is
+# confirmed EMPTY in the raw HTML - the real number only appears via the inline creditsUpdate()
+# call near the bottom of the page.
 NAVBAR_WITH_CREDITS_HTML = """
 <li title="Credits">
   <a class="lightbox-open" href="/credits" id="navigation_top">
     <img class="navbar-icon" style="margin-right: 2px;" src="data:image/png;base64,abc==" />
-    <span class="credits-value">2,456,656,440</span>
+    <span class="credits-value"></span>
   </a>
 </li>
+<script> $(function() { creditsUpdate(2456738985); coinsUpdate(193); messageUnreadUpdate(0); }); </script>
 """
 
 
-def test_parse_credits_balance_from_real_captured_navbar():
-    assert parse_credits_balance(NAVBAR_WITH_CREDITS_HTML) == 2_456_656_440
+def test_parse_credits_balance_from_real_captured_page():
+    assert parse_credits_balance(NAVBAR_WITH_CREDITS_HTML) == 2_456_738_985
 
 
 def test_parse_credits_balance_missing_raises():
     with pytest.raises(ValueError):
-        parse_credits_balance("<html><body>logged out</body></html>")
+        parse_credits_balance("<html><body>logged out, no creditsUpdate call</body></html>")
 
 
 def test_parse_building_prices_from_real_captured_page():
@@ -163,14 +166,14 @@ def test_create_building_reports_failure_when_no_new_building_appears():
     assert result.building is None
 
 
-def test_get_credits_balance_reads_navbar_via_plain_get_not_ajax_request():
+def test_get_credits_balance_reads_creditsupdate_via_plain_get_not_ajax_request():
     session = FakeMCSession([FakeMCResponse(200, text=NAVBAR_WITH_CREDITS_HTML)])
     client = MissionChiefClient(session, "https://www.missionchief.com")
     client.rate_limit.min_delay = client.rate_limit.max_delay = 0
 
     balance = client.get_credits_balance()
 
-    assert balance == 2_456_656_440
+    assert balance == 2_456_738_985
     # Regression guard: this must NOT go through _request()'s AJAX headers (X-Requested-With),
     # which are confirmed to make MissionChief respond differently to this same URL.
     method, url, kwargs = session.calls[0]

@@ -193,31 +193,49 @@ dropped by Chrome's DevTools by default). **Schema unconfirmed** — recommend u
 instead, since its schema is confirmed and it's what the established community tool
 (LSS-Manager) relies on.
 
-### Live credit balance — confirmed via a real account's DevTools inspection (2026-07)
+### Live credit balance — confirmed via a real account (2026-07)
 
-There's no dedicated API endpoint for this, but it doesn't need one: the current credit balance
-is rendered directly into the nav bar's HTML on **every** authenticated page load, including the
-plain homepage (`GET /`) already fetched for the CSRF token:
+There's no dedicated API endpoint for this, but it doesn't need one — the current credit balance
+is embedded directly in the HTML of **every** authenticated page load, including the plain
+homepage (`GET /`) already fetched for the CSRF token. Getting this right took two passes:
+
+**First pass (wrong):** DevTools "Inspect Element" on the nav bar showed
+`<span class="credits-value">2,456,656,440</span>` and it looked like a simple text-content
+read. It isn't — that's the *live DOM after JavaScript runs*, not the raw HTML. A real `GET /`
+capture (`view-source`-equivalent) showed the same span **empty**:
 
 ```html
-<li title="Credits">
-  <a class="lightbox-open" href="/credits" id="navigation_top">
-    <img class="navbar-icon" style="margin-right: 2px;" src="data:image/png;base64,..." />
-    <span class="credits-value">2,456,656,440</span>
-  </a>
-</li>
+<img class="navbar-icon" src="/images/mc_credits_flat.png">
+<span class="credits-value"></span>
 ```
 
-`mc_client.parse_credits_balance` reads the `<span class="credits-value">` text and strips the
-thousands-separator commas. **This must be fetched as a plain navigation request, not through
-this client's default AJAX headers** (`X-Requested-With`/`Accept: application/json`) — those are
-confirmed (see the CSRF-token section above) to make MissionChief respond differently to the same
-URL, so `get_credits_balance()` bypasses `_request()` and goes through the session directly, the
-same way `auth.py`'s CSRF-token fetch does.
+**Second pass (confirmed working):** searching the same raw HTML for the word "credit" turned up
+an inline script near the bottom of the page:
 
-The `href="/credits"` suggests a dedicated credits/finance page exists too, with presumably more
-detail (transaction history?) — not investigated, since the nav bar figure is all the budget
-safety checks need.
+```html
+<script> $(function() { creditsUpdate(2456738985); coinsUpdate(193); messageUnreadUpdate(0); }); </script>
+```
+
+`creditsUpdate(<n>)` is what actually populates that span client-side — but critically, this
+call itself is **server-rendered with the real current value at request time**, not delivered
+later via AJAX/websocket. So a plain `GET /` already contains the live number; it's just in this
+inline script, not the span. `mc_client.parse_credits_balance` regexes `creditsUpdate\((\d+)\)`
+out of the raw HTML directly, ignoring the (empty) span entirely.
+
+**Lesson for future endpoint/parsing work on this game:** DevTools' Elements/Inspect panel shows
+the post-JavaScript DOM, which can differ from what a plain HTTP client actually receives — when
+a value looks server-rendered but a parser can't find it, check whether it's actually populated
+by inline JS elsewhere in the same response before assuming a different endpoint is needed.
+
+`get_credits_balance()` must still be fetched as a plain navigation request, not through this
+client's default AJAX headers (`X-Requested-With`/`Accept: application/json`) — those are
+confirmed (see the CSRF-token section above) to make MissionChief respond differently to the same
+URL, so it bypasses `_request()` and goes through the session directly, the same way `auth.py`'s
+CSRF-token fetch does.
+
+The nav bar's `href="/credits"` suggests a dedicated credits/finance page exists too, with
+presumably more detail (transaction history?) — not investigated, since `creditsUpdate(...)` is
+all the budget safety checks need.
 
 ### `GET /reverse_address?latitude=<lat>&longitude=<lng>`
 

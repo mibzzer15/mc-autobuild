@@ -37,15 +37,23 @@ def parse_building_prices(html: str) -> dict[int, int]:
     return prices
 
 
+CREDITS_UPDATE_RE = re.compile(r"creditsUpdate\((\d+)\)")
+
+
 def parse_credits_balance(html: str) -> int:
-    """Parse the live credit balance from the `<span class="credits-value">` in the nav bar,
-    present on every authenticated page (confirmed via a real account's DevTools inspection —
-    docs/missionchief-api.md). Raises ValueError if not found (e.g. the page wasn't logged in)."""
-    soup = BeautifulSoup(html, "html.parser")
-    span = soup.find("span", class_="credits-value")
-    if not span or not span.text.strip():
-        raise ValueError("Could not find credits-value on the page — is the session logged in?")
-    return int(span.text.strip().replace(",", ""))
+    """Parse the live credit balance from the inline `creditsUpdate(<n>)` JS call near the
+    bottom of every authenticated page (confirmed against a real account).
+
+    The nav bar's `<span class="credits-value">` is confirmed **empty** in the raw HTML — it's
+    populated client-side by this same call, so it can't be read directly from a plain HTTP GET.
+    `creditsUpdate(...)` works instead because it's server-rendered with the real current value
+    at request time, not delivered via a later AJAX/websocket update — a plain GET already
+    contains it (docs/missionchief-api.md).
+    """
+    match = CREDITS_UPDATE_RE.search(html)
+    if not match:
+        raise ValueError("Could not find creditsUpdate(...) on the page — is the session logged in?")
+    return int(match.group(1))
 
 
 @dataclass
