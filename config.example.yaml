@@ -71,6 +71,9 @@ dedupe:
 naming:
   # Available placeholders: {poi_name} (from RLM), {city} (the region's `name`, or the `city`
   # value if the region used city-based lookup).
+  # MissionChief rejects any building name over 40 characters - confirmed live (see
+  # docs/missionchief-api.md). Names that end up too long are auto-shortened (the {poi_name}
+  # portion is trimmed first, {city} is kept intact), so this doesn't need to be sized by hand.
   template: "{poi_name}"
   # template: "{city} - {poi_name}"
 

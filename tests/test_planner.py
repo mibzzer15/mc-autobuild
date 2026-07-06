@@ -57,6 +57,24 @@ def test_render_name_falls_back_when_poi_name_missing():
     assert render_name("{poi_name}", {}) == "Unnamed Station"
 
 
+def test_render_name_truncates_over_missionchief_40_char_limit():
+    # Real case: this exact name (41 chars) was rejected live by MissionChief with "is too long
+    # (maximum is 40 characters)" - see docs/missionchief-api.md - while shorter names at the same
+    # price built fine in the same run.
+    poi = {"name": "Union City Police Department"}
+    name = render_name("{poi_name}- {city}", poi, city="Fremont, CA")
+
+    assert len(name) <= 40
+    # The city suffix (organizationally meaningful) is preserved; the POI name is shortened instead.
+    assert name.endswith("- Fremont, CA")
+
+
+def test_render_name_hard_truncates_if_still_too_long_after_shortening_poi_name():
+    poi = {"name": "X"}
+    name = render_name("{poi_name}", poi, city="A" * 60)
+    assert len(name) <= 40
+
+
 def _candidate(poi_id, name, lat, lng, building_type=0, building_type_name="Fire station"):
     return {
         "id": poi_id, "name": name, "lat": lat, "lng": lng,

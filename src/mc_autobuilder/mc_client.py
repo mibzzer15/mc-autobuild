@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .auth import check_session_alive
+from .planner import MAX_BUILDING_NAME_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,14 @@ class MissionChiefClient:
         body. Always re-fetches /buildings/new immediately beforehand for a current price and
         CSRF token, since prices are dynamic.
         """
+        if len(name) > MAX_BUILDING_NAME_LENGTH:
+            raise ValueError(
+                f"Building name {name!r} is {len(name)} characters, over MissionChief's "
+                f"{MAX_BUILDING_NAME_LENGTH}-character limit (confirmed live — see "
+                "docs/missionchief-api.md). Regenerate plan.json with `mc-autobuilder plan` so "
+                "long names get shortened automatically, or edit this entry's name directly."
+            )
+
         form_html = self._request("GET", "/buildings/new").text
         form = parse_new_building_form(form_html)
         price = form.prices.get(building_type)

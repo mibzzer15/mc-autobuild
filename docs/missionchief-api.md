@@ -369,16 +369,20 @@ not-yet-captured action.
 `POST /buildings` (building creation) is now confirmed against a real successful build — see
 above. Everything else below is still unconfirmed and must not be guessed at implementation time:
 
-- The error-response shape for a *failed* `POST /buildings` (insufficient funds, invalid params,
-  etc.) — not yet seen. Real-world case still open: a specific station ("Union City Police
-  Department", building_type 5, same price bracket as several stations that built fine in the
-  same runs) has failed the before/after-diff success check twice in a row on separate `run
-  --execute` invocations, and the one captured log for it shows the POST returning HTTP `200`
-  rather than the normal `302` — consistent with Rails re-rendering the form with a validation
-  error instead of redirecting, but the actual error text was never captured. `create_building`
-  now keeps the raw failed-POST response body on `BuildResult.response_text` (empty on success)
-  specifically so this can finally be diagnosed from the log next time it's retried, instead of
-  guessing at markup that's never been seen.
+- **Resolved — `building[name]` has a hard 40-character limit.** The repeated real failure on
+  "Union City Police Department- Fremont, CA" (41 characters) is now explained: the captured
+  failed-POST response body (`response_text`, added after the first investigation attempt) shows
+  the form re-rendered with `<input ... id="building_name" maxlength="40" ...><span
+  class="label label-danger">is too long (maximum is 40 characters)</span>`, i.e. a genuine
+  `200`-with-validation-error, not a diff/timing bug. Every other station in the same runs built
+  fine because their rendered names happened to be ≤40 characters. Fixed in `planner.render_name`:
+  if the rendered name exceeds `MAX_BUILDING_NAME_LENGTH = 40`, the `{poi_name}` portion is
+  shortened first (not the `{city}` suffix, which matters more for keeping stations organized by
+  region), with a final hard truncation as a safety net.
+- The error-response shape for other kinds of `POST /buildings` failures (insufficient funds,
+  etc.) is still unconfirmed — `create_building` keeps the raw failed-POST response body on
+  `BuildResult.response_text` (empty on success) so any future failure can be diagnosed from the
+  log instead of guessing at markup that's never been seen.
 - Station expansion / level upgrade (`/buildings/:id/expand` or similar)
 - Vehicle purchase (`/buildings/:id/vehicles/new` and its POST target, plus bay-capacity limits)
 - Hiring (1/3/7-day) page and POST, and how `hiring_phase`/`hiring_automatic` map to those options

@@ -189,6 +189,21 @@ def test_create_building_success_does_not_keep_response_text():
     assert result.response_text == ""
 
 
+def test_create_building_rejects_name_over_40_chars_before_making_any_request():
+    # Real case: MissionChief's building[name] has a hard 40-char limit (docs/missionchief-api.md).
+    # A stale plan.json generated before this was fixed could still contain an over-long name, so
+    # this must fail fast with a clear message rather than burning requests and hitting the game's
+    # own rejection.
+    session = FakeMCSession([])
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    with pytest.raises(ValueError, match="40-character limit"):
+        client.create_building(building_type=5, name="X" * 41, latitude=1.0, longitude=2.0)
+
+    assert session.calls == []
+
+
 def test_get_credits_balance_reads_creditsupdate_via_plain_get_not_ajax_request():
     session = FakeMCSession([FakeMCResponse(200, text=NAVBAR_WITH_CREDITS_HTML)])
     client = MissionChiefClient(session, "https://www.missionchief.com")

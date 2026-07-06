@@ -41,9 +41,23 @@ def find_duplicate(
     return best
 
 
+# Confirmed live (docs/missionchief-api.md): building[name] rejects anything over 40 characters
+# ("is too long (maximum is 40 characters)"), re-rendering the form with HTTP 200 instead of the
+# usual redirect - this is what silently sank "Union City Police Department- Fremont, CA" (41
+# chars) while shorter names built fine at the same price.
+MAX_BUILDING_NAME_LENGTH = 40
+
+
 def render_name(template: str, poi: dict, city: str = "") -> str:
     poi_name = poi.get("name") or "Unnamed Station"
-    return template.format(poi_name=poi_name, city=city)
+    name = template.format(poi_name=poi_name, city=city)
+    overflow = len(name) - MAX_BUILDING_NAME_LENGTH
+    if overflow > 0:
+        # Shorten the POI name first - it's the variable-length part - rather than the city
+        # suffix, which matters more for keeping stations organized by region.
+        poi_name = poi_name[: max(0, len(poi_name) - overflow)].rstrip()
+        name = template.format(poi_name=poi_name, city=city)
+    return name[:MAX_BUILDING_NAME_LENGTH]
 
 
 @dataclass
