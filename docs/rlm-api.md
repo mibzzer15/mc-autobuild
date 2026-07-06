@@ -74,7 +74,11 @@ optional and independent — you can also omit them entirely and just paginate t
 of a given `poi_type` worldwide (which is what the public map page does; not recommended for us —
 prefer a bbox to avoid pulling and caching far more than a given run's region needs).
 
-Response shape:
+**Response shape genuinely differs depending on whether a bounding box is given — this was
+missed in an earlier pass of this doc and broke the client against real bbox queries.**
+
+Without a bbox (matches what the public map page does, paginating through a whole `poi_type`
+worldwide):
 
 ```json
 {
@@ -93,6 +97,28 @@ Response shape:
   ]
 }
 ```
+
+**With** a bbox — which is every query `rlm_client.py` actually makes — it's a **bare JSON
+array**, with no `total_count`/`pois` wrapper and no pagination metadata at all:
+
+```json
+[
+  {
+    "id": 5292,
+    "name": "Alameda Juvenile Detention",
+    "latitude": 37.7159032,
+    "longitude": -122.1183077,
+    "address": "Alameda Juvenile Detention, 2500, Fairmont Drive, San Leandro, Alameda County, California, 94578, United States",
+    "osm_id": 317849011,
+    "osm_type": "way",
+    "status": "operational"
+  }
+]
+```
+
+Since there's no `total_count` to know when to stop, `rlm_client.get_pois` pages until it gets
+back a page shorter than the requested `page_size` (a full page implies there may be more; a
+partial or empty one means it's the last page).
 
 **Important gotcha — coordinate field names are not consistent across `poi_type` values.** A
 `poi_control_centre` query returned `lat`/`lng`; a `poi_fire_station` query returned

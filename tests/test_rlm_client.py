@@ -64,15 +64,23 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Records every call so tests can assert on cache-hit vs. live-request counts."""
+    """Records every call so tests can assert on cache-hit vs. live-request counts.
+
+    `responses` can be a single value (returned every call) or a list (one per call, in order -
+    for testing multi-page pagination where each page differs).
+    """
 
     def __init__(self, responses):
         self.responses = responses
         self.call_count = 0
 
     def get(self, url, params=None, headers=None, timeout=None):
+        if isinstance(self.responses, list) and self.responses and isinstance(self.responses[0], list):
+            data = self.responses[min(self.call_count, len(self.responses) - 1)]
+        else:
+            data = self.responses
         self.call_count += 1
-        return FakeResponse(self.responses)
+        return FakeResponse(data)
 
 
 def test_get_poi_types_uses_real_captured_fixture(tmp_path):
@@ -111,19 +119,35 @@ def test_cached_get_refetches_after_ttl_expires(tmp_path):
     assert session.call_count == 2  # TTL of 0 means every call is a live request
 
 
-def test_get_pois_normalizes_and_paginates_using_real_fixture(tmp_path):
-    fixture_data = json.loads((FIXTURES / "rlm_pois_control_centre_sample.json").read_text())
+def test_get_pois_handles_real_bbox_array_response_shape(tmp_path):
+    # Confirmed live (docs/rlm-api.md): /api/pois with a bounding box returns a *bare JSON
+    # array*, not the {"total_count", "pois": [...]} shape it returns without one. This fixture
+    # is a real capture of exactly that - a bbox query our client always makes.
+    fixture_data = json.loads((FIXTURES / "rlm_pois_bbox_array_sample.json").read_text())
+    assert isinstance(fixture_data, list)  # sanity-check the fixture itself is the bare-array shape
+
     session = FakeSession(fixture_data)
     client = RLMClient(RLMClientConfig(cache_dir=tmp_path / "cache"), session=session)
 
-    bbox = BoundingBox(north=90, south=-90, east=180, west=-180)
-    pois = client.get_pois("poi_control_centre", bbox, page_size=10000)
+    bbox = BoundingBox(north=38.0, south=37.5, east=-121.8, west=-122.3)
+    pois = client.get_pois("poi_prison", bbox, page_size=100)
 
-    # The real fixture's total_count (320) is far larger than the 3 sample rows it contains, so
-    # a real server would keep paginating - but our FakeSession always returns the same fixture,
-    # so this also verifies pagination actually stops instead of looping forever once a
-    # page's poi list would repeat page_size >= total_count.
-    assert len(pois) == 3
-    assert pois[0]["name"] == "Incident Control Point"
-    assert pois[0]["lat"] == -43.2088427
-    assert pois[0]["lng"] == 171.7146897
+    assert session.call_count == 1  # a partial page (7 < page_size 100) means no next page fetched
+    assert len(pois) == 7
+    assert pois[0]["name"] == "Alameda Juvenile Detention"
+    assert pois[0]["lat"] == 37.7159032  # normalized from the fixture's latitude/longitude fields
+    assert pois[0]["lng"] == -122.1183077
+
+
+def test_get_pois_keeps_paginating_while_a_page_is_full(tmp_path):
+    # With no total_count available (see above), pagination has to stop-on-partial-page instead.
+    page_1 = [{"id": i, "name": f"Station {i}", "lat": 1.0, "lng": 2.0} for i in range(3)]
+    page_2 = [{"id": i, "name": f"Station {i}", "lat": 1.0, "lng": 2.0} for i in range(3, 5)]
+    session = FakeSession([page_1, page_2])
+    client = RLMClient(RLMClientConfig(cache_dir=tmp_path / "cache"), session=session)
+
+    bbox = BoundingBox(north=1, south=0, east=1, west=0)
+    pois = client.get_pois("poi_fire_station", bbox, page_size=3)
+
+    assert session.call_count == 2  # page 1 was full (3 == page_size), so page 2 was fetched
+    assert len(pois) == 5

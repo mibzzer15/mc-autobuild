@@ -151,7 +151,15 @@ class RLMClient:
         self, poi_type: str, bbox: BoundingBox, page_size: int = DEFAULT_PAGE_SIZE
     ) -> list[dict]:
         """GET /api/pois for one POI type within a bounding box, paginating as needed, and
-        normalizing each POI's coordinate fields."""
+        normalizing each POI's coordinate fields.
+
+        Confirmed live (docs/rlm-api.md): the response shape genuinely differs depending on
+        whether a bounding box is given. Without one, it's `{"total_count": N, "pois": [...]}`.
+        **With** one — which is every query this client makes — it's a bare JSON array with no
+        pagination metadata at all. So a bbox query can't know the true total count; instead we
+        keep paging as long as a page comes back full (`len(pois) == page_size`, implying there
+        may be more) and stop on the first partial or empty page.
+        """
         all_pois: list[dict] = []
         page = 1
         while True:
@@ -167,10 +175,9 @@ class RLMClient:
                     "page_size": page_size,
                 },
             )
-            pois = data.get("pois", [])
+            pois = data if isinstance(data, list) else data.get("pois", [])
             all_pois.extend(normalize_poi(p) for p in pois)
-            total_count = data.get("total_count", len(pois))
-            if not pois or page * page_size >= total_count:
+            if len(pois) < page_size:
                 break
             page += 1
         return all_pois

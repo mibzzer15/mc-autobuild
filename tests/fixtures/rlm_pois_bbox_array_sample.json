@@ -1,0 +1,72 @@
+[
+    {
+        "id": 5292,
+        "name": "Alameda Juvenile Detention",
+        "latitude": 37.7159032,
+        "longitude": -122.1183077,
+        "address": "Alameda Juvenile Detention, 2500, Fairmont Drive, San Leandro, Alameda County, California, 94578, United States",
+        "osm_id": 317849011,
+        "osm_type": "way",
+        "status": "operational"
+    },
+    {
+        "id": 5320,
+        "name": "Federal Correctional Institution, Dublin",
+        "latitude": 37.7183803,
+        "longitude": -121.8967245,
+        "address": "Federal Correctional Institution, Dublin, 5701, 8th Street, Komandorski Village, Dublin, Alameda County, California, 94568, United States",
+        "osm_id": 475559870,
+        "osm_type": "way",
+        "status": "operational"
+    },
+    {
+        "id": 5321,
+        "name": "Santa Rita Jail",
+        "latitude": 37.717979,
+        "longitude": -121.887997,
+        "address": "Santa Rita Jail, 5325, Broder Boulevard, Dublin, Alameda County, California, 94568, United States",
+        "osm_id": 475559875,
+        "osm_type": "way",
+        "status": "operational"
+    },
+    {
+        "id": 5214,
+        "name": "Contra Costa Juvenile Hall",
+        "latitude": 37.9878743,
+        "longitude": -122.0886296,
+        "address": "Contra Costa Juvenile Hall, Lava Court, Martinez, Contra Costa County, California, 94523, United States",
+        "osm_id": 4959226314,
+        "osm_type": "node",
+        "status": "operational"
+    },
+    {
+        "id": 5327,
+        "name": "To Be Confirmed",
+        "latitude": 37.9882528,
+        "longitude": -122.088541,
+        "address": "Glacier Drive, Martinez, Contra Costa County, California, 94523, United States",
+        "osm_id": 506145237,
+        "osm_type": "way",
+        "status": "operational"
+    },
+    {
+        "id": 5236,
+        "name": "Fremont Detention Facility",
+        "latitude": 37.552206,
+        "longitude": -121.9681441,
+        "address": "Fremont Detention Facility, Stevenson Boulevard, Fremont, Alameda County, California, 94536, United States",
+        "osm_id": 37784263,
+        "osm_type": "way",
+        "status": "operational"
+    },
+    {
+        "id": 5216,
+        "name": "Marsh Creek Detention Facility",
+        "latitude": 37.8946391,
+        "longitude": -121.8648237,
+        "address": "Marsh Creek Detention Facility, 12000, Marsh Creek Road, Marsh Creek Springs, Clayton, Contra Costa County, California, 94517, United States",
+        "osm_id": 6319964959,
+        "osm_type": "node",
+        "status": "operational"
+    }
+]
