@@ -406,6 +406,177 @@ def build(
     typer.echo(f"Full log: {log_path}")
 
 
+@app.command()
+def run(
+    plan_path: str = "plan.json",
+    env_file: str = ".env",
+    config_file: str = "config.yaml",
+    db_path: str = "mc_autobuilder.db",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually build everything. Without this, only previews it."
+    ),
+) -> None:
+    """Build every not-yet-built station in plan.json's `to_build` list, one at a time.
+
+    Dry-run by default (shows the full list and total cost, spends nothing). Pass --execute for
+    ONE confirmation covering the whole batch, then it builds through all of them — with the
+    usual rate-limit delays between each — stopping immediately (not just skipping) if: your live
+    credit balance would drop below budget.credit_reserve, a build fails to confirm success, the
+    session expires, or this run's budget.max_credits_per_run is used up. Already-built entries
+    (recorded locally, e.g. from a previous interrupted run) are skipped rather than repeated.
+    """
+    log_path = _setup_logging("run")
+    logger = logging.getLogger("mc_autobuilder.run")
+
+    try:
+        config = Config.from_yaml(config_file)
+    except ConfigError as exc:
+        typer.secho(f"Config error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    plan_file = Path(plan_path)
+    if not plan_file.exists():
+        typer.secho(f"{plan_path} not found. Run `mc-autobuilder plan` first.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    entries = json.loads(plan_file.read_text()).get("to_build", [])
+    if not entries:
+        typer.echo("Nothing to build — plan.json's to_build list is empty.")
+        raise typer.Exit(code=0)
+
+    engine = init_db(db_path)
+    session_factory = get_session_factory(engine)
+    with session_factory() as db:
+        pending = [e for e in entries if has_completed_action(db, "build", e["poi_id"]) is None]
+    already_done = len(entries) - len(pending)
+
+    if not pending:
+        typer.secho(f"All {len(entries)} station(s) in {plan_path} are already built.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=0)
+
+    total_estimated_cost = sum(e.get("estimated_cost") or 0 for e in pending)
+    typer.echo("")
+    header = f"{len(pending)} station(s) to build"
+    if already_done:
+        header += f" ({already_done} already done, skipping)"
+    typer.secho(header, bold=True)
+    for e in pending:
+        cost_str = f"{e['estimated_cost']:,} credits" if e.get("estimated_cost") is not None else "price unknown"
+        typer.echo(f"  + {e['name']!r} ({e['building_type_name']}) — {cost_str}")
+    typer.echo("")
+    typer.secho(f"Total estimated cost: {total_estimated_cost:,} credits", bold=True)
+    typer.echo(
+        f"Credit reserve to protect: {config.credit_reserve:,} credits "
+        "(checked against your live balance before each station)"
+    )
+
+    if not execute:
+        typer.echo("")
+        typer.secho("Dry run — pass --execute to build all of these. Nothing was submitted.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    if not typer.confirm(
+        f"This will spend up to {total_estimated_cost:,} credits building {len(pending)} "
+        "station(s), one at a time, stopping early if your balance would drop below the reserve "
+        "or anything looks wrong. Continue?"
+    ):
+        typer.echo("Cancelled — nothing was built.")
+        raise typer.Exit(code=0)
+
+    auth_config = AuthConfig.from_env(env_file)
+    try:
+        session = build_session(auth_config)
+    except SessionExpiredError as exc:
+        typer.secho(f"Authentication failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    mc_client = MissionChiefClient(session, auth_config.base_url)
+
+    built = 0
+    spent = 0
+    typer.echo("")
+    for entry in pending:
+        try:
+            balance = mc_client.get_credits_balance()
+            live_prices = mc_client.get_building_prices()
+        except SessionExpiredError as exc:
+            typer.secho(f"Stopping — authentication failed: {exc}", fg=typer.colors.RED, err=True)
+            break
+        except Exception as exc:
+            logger.exception("Could not read live credit balance / prices")
+            typer.secho(f"Stopping — could not read your live balance/prices: {exc}", fg=typer.colors.RED)
+            break
+
+        price = live_prices.get(entry["building_type"])
+        if price is None:
+            typer.secho(
+                f"Stopping — no live price found for building_type {entry['building_type']}.",
+                fg=typer.colors.RED,
+            )
+            break
+        if balance - price < config.credit_reserve:
+            typer.secho(
+                f"Stopping — building {entry['name']!r} (~{price:,} credits) would drop your "
+                f"balance ({balance:,}) below the {config.credit_reserve:,} reserve.",
+                fg=typer.colors.YELLOW,
+            )
+            break
+        if config.max_credits_per_run is not None and spent + price > config.max_credits_per_run:
+            typer.secho(
+                f"Stopping — this run's {config.max_credits_per_run:,}-credit budget is used up.",
+                fg=typer.colors.YELLOW,
+            )
+            break
+
+        typer.echo(f"Building {entry['name']!r} ({price:,} credits)...")
+        try:
+            result = mc_client.create_building(
+                building_type=entry["building_type"],
+                name=entry["name"],
+                latitude=entry["latitude"],
+                longitude=entry["longitude"],
+            )
+        except SessionExpiredError as exc:
+            typer.secho(f"Stopping — authentication failed: {exc}", fg=typer.colors.RED, err=True)
+            break
+        except Exception as exc:
+            logger.exception("Unexpected error while building %s", entry["name"])
+            typer.secho(f"Stopping — unexpected error building {entry['name']!r}: {exc}", fg=typer.colors.RED)
+            break
+
+        if not result.success:
+            typer.secho(
+                f"Stopping — could not confirm {entry['name']!r} was built. Check your account "
+                "manually before retrying.",
+                fg=typer.colors.RED,
+            )
+            break
+
+        with session_factory() as db:
+            record_completed_action(
+                db,
+                action_type="build",
+                poi_id=entry["poi_id"],
+                building_id=result.building["id"],
+                building_type=entry["building_type"],
+                name=entry["name"],
+                cost=result.price,
+            )
+        built += 1
+        spent += result.price or 0
+        logger.info(
+            "Built %s (poi_id=%s) -> building id %s, cost %s",
+            entry["name"],
+            entry["poi_id"],
+            result.building["id"],
+            result.price,
+        )
+        typer.secho(f"  Built — building id {result.building['id']}, cost {result.price:,} credits.", fg=typer.colors.GREEN)
+
+    typer.echo("")
+    typer.secho(f"Run complete: built {built}/{len(pending)}, spent {spent:,} credits.", bold=True)
+    typer.echo(f"Full log: {log_path}")
+
+
 def main() -> None:
     app()
 

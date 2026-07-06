@@ -14,10 +14,13 @@ database this tool builds on. See `docs/rlm-api.md` for what we've confirmed abo
   Leitstellenspiel's terms generally prohibit botting/automation. Running this tool is your own
   decision and risk — it may get your account warned, suspended, or banned. Nothing here is legal
   advice.
-- **`build` spends real in-game credits.** It's dry-run by default (shows what it would submit
-  and the current price, spends nothing) and requires both an explicit `--execute` flag *and* an
-  interactive confirmation naming the exact station and price before it submits anything. `sync`
-  and `plan` are fully read-only.
+- **`build` and `run` spend real in-game credits.** Both are dry-run by default (show what would
+  be submitted and the current price, spend nothing) and require both an explicit `--execute`
+  flag *and* an interactive confirmation before submitting anything — `build` confirms one
+  station, `run` shows the full batch and its total cost and asks once for the whole run. `run`
+  also stops immediately (not just skips ahead) if your live balance would drop below
+  `budget.credit_reserve`, a build fails to confirm, or `budget.max_credits_per_run` is used up.
+  `sync` and `plan` are fully read-only.
 - Your session cookie is equivalent to your password for this game. Treat `.env` and
   `storage_state.json` like credentials: never commit them, never share them.
 
@@ -30,12 +33,11 @@ This is being built in phases; only what's actually implemented is documented be
 | 0 | Research: RLM + MissionChief API docs | Done — `docs/rlm-api.md`, `docs/missionchief-api.md` |
 | 1 | Auth + read-only building sync | **Done** — `mc-autobuilder login` / `sync` |
 | 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
-| 4 | Build execution (single station at a time) | **Done** — `mc-autobuilder build` |
+| 4 | Build execution (one station, or a whole plan) | **Done** — `mc-autobuilder build` / `run` |
 | 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | Not started |
 | 6 | Web dashboard | Not started |
 
-Commands that don't exist yet: `expand`, `vehicles`, `hire`, `assign`, `service`, `dispatch`,
-`run`.
+Commands that don't exist yet: `expand`, `vehicles`, `hire`, `assign`, `service`, `dispatch`.
 
 ## Requirements
 
@@ -235,12 +237,32 @@ to confirm the exact station and cost interactively, and only then submits the b
 what it built locally, so running the same `--poi-id` again just reports "already built" instead
 of building a duplicate.
 
-There's no confirmed way yet to read your live credit balance (see docs/missionchief-api.md), so
-`budget.credit_reserve` in `config.yaml` isn't enforced here — if a build would fail for
-insufficient funds, MissionChief itself is the backstop, and `build` will report that it
-couldn't confirm the station was created rather than assume success.
+### 9. Build a whole plan at once
 
-### 9. Re-authenticating when your session expires
+To build everything in `plan.json`'s `to_build` list instead of one station at a time, preview
+the batch first:
+
+```bash
+mc-autobuilder run
+```
+
+With no `--execute`, this just lists every not-yet-built station and the total estimated cost.
+When you're ready:
+
+```bash
+mc-autobuilder run --execute
+```
+
+You get **one** confirmation covering the whole batch (total station count and cost), then it
+builds through all of them — with the same rate-limit delays between each as everything else in
+this tool. Before each station it checks your **live** credit balance (read from the nav bar,
+same as the game shows you) and stops immediately, without building that station, if doing so
+would drop your balance below `budget.credit_reserve`. It also stops if `budget.max_credits_per_run`
+for the run is used up, if a build ever fails to confirm success, or if your session expires —
+"stop and tell you," never "skip ahead and keep spending." Already-built stations (e.g. from a
+previous interrupted run) are skipped rather than repeated.
+
+### 10. Re-authenticating when your session expires
 
 If `sync` fails with an authentication error (expired/invalid session), it will tell you plainly
 instead of failing silently. Fix it by:
@@ -288,7 +310,7 @@ src/mc_autobuilder/
   planner.py      # pure dedupe/build-planning logic (haversine distance, budget/caps)
   config.py       # config.yaml loading and validation
   models.py       # SQLite/SQLAlchemy local cache + completed-action idempotency log
-  cli.py          # typer CLI (`login`, `sync`, `plan`, `build`)
+  cli.py          # typer CLI (`login`, `sync`, `plan`, `build`, `run`)
 config.example.yaml
 docs/
   rlm-api.md            # RLM API research findings
