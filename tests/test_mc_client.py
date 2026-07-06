@@ -6,11 +6,31 @@ from mc_autobuilder.mc_client import (
     BuildResult,
     MissionChiefClient,
     parse_building_prices,
+    parse_credits_balance,
     parse_new_building_form,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BUILDINGS_NEW_HTML = (FIXTURES / "buildings_new.html").read_text()
+
+# Trimmed excerpt of the real nav bar markup (2026-07 DevTools inspection of a live account).
+NAVBAR_WITH_CREDITS_HTML = """
+<li title="Credits">
+  <a class="lightbox-open" href="/credits" id="navigation_top">
+    <img class="navbar-icon" style="margin-right: 2px;" src="data:image/png;base64,abc==" />
+    <span class="credits-value">2,456,656,440</span>
+  </a>
+</li>
+"""
+
+
+def test_parse_credits_balance_from_real_captured_navbar():
+    assert parse_credits_balance(NAVBAR_WITH_CREDITS_HTML) == 2_456_656_440
+
+
+def test_parse_credits_balance_missing_raises():
+    with pytest.raises(ValueError):
+        parse_credits_balance("<html><body>logged out</body></html>")
 
 
 def test_parse_building_prices_from_real_captured_page():
@@ -61,6 +81,9 @@ class FakeMCSession:
     def request(self, method, url, **kwargs):
         self.calls.append((method, url, kwargs))
         return self.responses[len(self.calls) - 1]
+
+    def get(self, url, **kwargs):
+        return self.request("GET", url, **kwargs)
 
 
 EXISTING_BUILDINGS = [{"id": 1, "building_type": 5, "latitude": 1.0, "longitude": 2.0}]
@@ -138,3 +161,18 @@ def test_create_building_reports_failure_when_no_new_building_appears():
 
     assert result.success is False
     assert result.building is None
+
+
+def test_get_credits_balance_reads_navbar_via_plain_get_not_ajax_request():
+    session = FakeMCSession([FakeMCResponse(200, text=NAVBAR_WITH_CREDITS_HTML)])
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    balance = client.get_credits_balance()
+
+    assert balance == 2_456_656_440
+    # Regression guard: this must NOT go through _request()'s AJAX headers (X-Requested-With),
+    # which are confirmed to make MissionChief respond differently to this same URL.
+    method, url, kwargs = session.calls[0]
+    assert method == "GET"
+    assert "headers" not in kwargs or "X-Requested-With" not in kwargs.get("headers", {})

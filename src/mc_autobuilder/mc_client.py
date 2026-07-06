@@ -37,6 +37,17 @@ def parse_building_prices(html: str) -> dict[int, int]:
     return prices
 
 
+def parse_credits_balance(html: str) -> int:
+    """Parse the live credit balance from the `<span class="credits-value">` in the nav bar,
+    present on every authenticated page (confirmed via a real account's DevTools inspection —
+    docs/missionchief-api.md). Raises ValueError if not found (e.g. the page wasn't logged in)."""
+    soup = BeautifulSoup(html, "html.parser")
+    span = soup.find("span", class_="credits-value")
+    if not span or not span.text.strip():
+        raise ValueError("Could not find credits-value on the page — is the session logged in?")
+    return int(span.text.strip().replace(",", ""))
+
+
 @dataclass
 class NewBuildingForm:
     authenticity_token: str
@@ -148,6 +159,19 @@ class MissionChiefClient:
         cache across runs, since prices scale with account/alliance progression."""
         resp = self._request("GET", "/buildings/new")
         return parse_building_prices(resp.text)
+
+    def get_credits_balance(self) -> int:
+        """GET / (homepage) — the live credit balance, read from the nav bar's
+        `credits-value` span present on every authenticated page (confirmed via a real
+        account). Deliberately bypasses this client's default AJAX headers and goes through
+        the session directly, same as auth.py's CSRF-token fetch: requests to this page
+        flagged as AJAX (X-Requested-With) are confirmed to behave differently and can come
+        back without the content we need (see auth.py's session defaults)."""
+        self._sleep_between_requests()
+        resp = self.session.get(f"{self.base_url}/", timeout=30)
+        check_session_alive(resp)
+        resp.raise_for_status()
+        return parse_credits_balance(resp.text)
 
     def create_building(
         self,

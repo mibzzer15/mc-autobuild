@@ -193,6 +193,32 @@ dropped by Chrome's DevTools by default). **Schema unconfirmed** — recommend u
 instead, since its schema is confirmed and it's what the established community tool
 (LSS-Manager) relies on.
 
+### Live credit balance — confirmed via a real account's DevTools inspection (2026-07)
+
+There's no dedicated API endpoint for this, but it doesn't need one: the current credit balance
+is rendered directly into the nav bar's HTML on **every** authenticated page load, including the
+plain homepage (`GET /`) already fetched for the CSRF token:
+
+```html
+<li title="Credits">
+  <a class="lightbox-open" href="/credits" id="navigation_top">
+    <img class="navbar-icon" style="margin-right: 2px;" src="data:image/png;base64,..." />
+    <span class="credits-value">2,456,656,440</span>
+  </a>
+</li>
+```
+
+`mc_client.parse_credits_balance` reads the `<span class="credits-value">` text and strips the
+thousands-separator commas. **This must be fetched as a plain navigation request, not through
+this client's default AJAX headers** (`X-Requested-With`/`Accept: application/json`) — those are
+confirmed (see the CSRF-token section above) to make MissionChief respond differently to the same
+URL, so `get_credits_balance()` bypasses `_request()` and goes through the session directly, the
+same way `auth.py`'s CSRF-token fetch does.
+
+The `href="/credits"` suggests a dedicated credits/finance page exists too, with presumably more
+detail (transaction history?) — not investigated, since the nav bar figure is all the budget
+safety checks need.
+
 ### `GET /reverse_address?latitude=<lat>&longitude=<lng>`
 
 MissionChief's own reverse-geocoding endpoint. Returns a plain-text address string, e.g.:
