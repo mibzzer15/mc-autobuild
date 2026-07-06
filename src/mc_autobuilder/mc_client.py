@@ -95,6 +95,12 @@ class BuildResult:
     building: dict | None
     price: int | None
     response_status: int
+    # Raw POST /buildings response body, kept only on failure. The failure-response shape has
+    # never been captured live (docs/missionchief-api.md), so nothing here is parsed/guessed at —
+    # it's just surfaced so a repeated, otherwise-identical failure (e.g. one specific station
+    # rejected twice while others at the same price succeed) can finally be diagnosed from the log
+    # instead of asking the user to re-run a one-off diagnostic script.
+    response_text: str = ""
 
 # Confirmed in docs/missionchief-api.md: the game's frontend JS attaches these to every AJAX
 # call to /api/*, distinct from a plain browser navigation request (see auth.py's session
@@ -104,6 +110,17 @@ API_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
     "Accept": "application/json, text/javascript, */*; q=0.01",
 }
+
+
+def summarize_html_for_log(html: str, max_chars: int = 2000) -> str:
+    """Strip tags/scripts and collapse whitespace so a failed page's actual visible text (e.g. a
+    Rails flash/validation message we've never seen the shape of) is readable in a log line,
+    without guessing at specific markup to pattern-match."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    text = " ".join(soup.get_text(separator=" ").split())
+    return text[:max_chars]
 
 
 @dataclass
@@ -232,9 +249,11 @@ class MissionChiefClient:
             (b for b in after if b["id"] not in before_ids and b["building_type"] == building_type),
             None,
         )
+        success = new_building is not None
         return BuildResult(
-            success=new_building is not None,
+            success=success,
             building=new_building,
             price=price,
             response_status=resp.status_code,
+            response_text="" if success else resp.text,
         )

@@ -14,7 +14,7 @@ import typer
 from .auth import AuthConfig, SessionExpiredError, build_session, interactive_playwright_login
 from .config import Config, ConfigError
 from .constants import BUILDING_TYPES
-from .mc_client import MissionChiefClient
+from .mc_client import MissionChiefClient, summarize_html_for_log
 from .models import (
     Building,
     get_session_factory,
@@ -390,16 +390,17 @@ def build(
     else:
         logger.error(
             "Build could not be confirmed. POST /buildings returned HTTP %s; no new building of "
-            "type %s appeared in /api/buildings afterward.",
+            "type %s appeared in /api/buildings afterward. Response body:\n%s",
             result.response_status,
             entry["building_type"],
+            result.response_text,
         )
         typer.echo("")
         typer.secho(
             "Could not confirm the build succeeded — no new matching building appeared in "
-            "/api/buildings afterward. Check your account manually before retrying, and see the "
-            "log for details (this could mean insufficient funds, a full building slot, or an "
-            "unexpected response).",
+            "/api/buildings afterward. Check your account manually before retrying.\n"
+            f"Page said: {summarize_html_for_log(result.response_text, max_chars=300)!r}\n"
+            f"Full response body logged to {log_path}",
             fg=typer.colors.RED,
         )
 
@@ -544,9 +545,18 @@ def run(
             break
 
         if not result.success:
+            logger.error(
+                "Build could not be confirmed for %s. POST /buildings returned HTTP %s. "
+                "Response body:\n%s",
+                entry["name"],
+                result.response_status,
+                result.response_text,
+            )
             typer.secho(
                 f"Stopping — could not confirm {entry['name']!r} was built. Check your account "
-                "manually before retrying.",
+                "manually before retrying.\n"
+                f"Page said: {summarize_html_for_log(result.response_text, max_chars=300)!r}\n"
+                f"Full response body logged to {log_path}",
                 fg=typer.colors.RED,
             )
             break

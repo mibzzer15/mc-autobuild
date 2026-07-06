@@ -164,6 +164,29 @@ def test_create_building_reports_failure_when_no_new_building_appears():
 
     assert result.success is False
     assert result.building is None
+    # The failure page's body is captured (never parsed/guessed at) so a repeated, unexplained
+    # failure can actually be diagnosed from the log instead of asking for another one-off script.
+    assert "Not enough credits" in result.response_text
+
+
+def test_create_building_success_does_not_keep_response_text():
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, text=BUILDINGS_NEW_HTML),
+            FakeMCResponse(200, json_data=EXISTING_BUILDINGS),
+            FakeMCResponse(302, text=""),
+            FakeMCResponse(200, json_data=[*EXISTING_BUILDINGS, NEW_BUILDING]),
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.create_building(
+        building_type=5, name="Test Police Station", latitude=10.0, longitude=20.0
+    )
+
+    assert result.success is True
+    assert result.response_text == ""
 
 
 def test_get_credits_balance_reads_creditsupdate_via_plain_get_not_ajax_request():

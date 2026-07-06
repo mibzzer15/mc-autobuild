@@ -370,8 +370,15 @@ not-yet-captured action.
 above. Everything else below is still unconfirmed and must not be guessed at implementation time:
 
 - The error-response shape for a *failed* `POST /buildings` (insufficient funds, invalid params,
-  etc.) — not yet seen; `create_building` currently just reports "couldn't confirm success"
-  without distinguishing why
+  etc.) — not yet seen. Real-world case still open: a specific station ("Union City Police
+  Department", building_type 5, same price bracket as several stations that built fine in the
+  same runs) has failed the before/after-diff success check twice in a row on separate `run
+  --execute` invocations, and the one captured log for it shows the POST returning HTTP `200`
+  rather than the normal `302` — consistent with Rails re-rendering the form with a validation
+  error instead of redirecting, but the actual error text was never captured. `create_building`
+  now keeps the raw failed-POST response body on `BuildResult.response_text` (empty on success)
+  specifically so this can finally be diagnosed from the log next time it's retried, instead of
+  guessing at markup that's never been seen.
 - Station expansion / level upgrade (`/buildings/:id/expand` or similar)
 - Vehicle purchase (`/buildings/:id/vehicles/new` and its POST target, plus bay-capacity limits)
 - Hiring (1/3/7-day) page and POST, and how `hiring_phase`/`hiring_automatic` map to those options
