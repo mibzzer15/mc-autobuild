@@ -364,6 +364,50 @@ The dropdown lists the account's existing dispatch centers by name → id, e.g. 
 this form field; reassignment of an *already-built* station to a different center is a separate,
 not-yet-captured action.
 
+## Personnel-to-vehicle assignment (confirmed, 2026-07-06 HAR capture)
+
+Captured from a real session assigning 4 personnel each to two Type 1 fire engines.
+
+- **`POST /vehicles/<vehicle_id>/zuweisungDo/<personnel_id>`** — binds `personnel_id` as crew on
+  `vehicle_id`. No POST body; both IDs are in the path. Headers: `X-Requested-With:
+  XMLHttpRequest`, `X-CSRF-Token: <token>`, `Accept: */*`, `Referer:
+  /vehicles/<vehicle_id>/zuweisung` (confirms there's a per-vehicle "assign crew" page at that
+  path, but its GET request itself was never captured — see gap below).
+- Response (`200`, `text/html`) is a small HTML fragment for just that one personnel row, e.g.:
+  ```html
+  <td>Paul G.</td>
+  <td></td>
+  <td><span class="label label-success"><i>Available</i></span></td>
+  <td>
+    <a href="/vehicles/14577420">Type 1 fire engine</a><br>
+    <a class="btn btn-default btn-assigned" href="/vehicles/14577420/zuweisungDo/135847194" personal_id="135847194">Remove binding</a>
+  </td>
+  ```
+  The 3rd `<td>` is that employee's own duty status — `Available`, or `In a Vehicle: <a
+  href="...">...</a>` once bound somewhere. The 4th `<td>`'s link text flips to "Remove binding"
+  once assigned, implying the **same URL is used to unassign** (a toggle), though a toggle-back
+  was never observed in this capture (each personnel_id was only POSTed once).
+- **Open oddity, not yet explained:** for the second vehicle (14578509), three of the four
+  assigned personnel's status `<td>` showed `In a Vehicle: <a href="/vehicles/14577420">...</a>`
+  — i.e. pointing at the *other*, first-filled vehicle, not the one just assigned in that same
+  request. Could be a caching/rendering quirk in the game itself, or a misread of response
+  ordering. Don't build assumptions on which vehicle a person ends up in from this field alone —
+  verify via `/api/vehicles`'s `assigned_personnel_count` (confirmed field, before/after diff)
+  instead, same pattern as `create_building`.
+- `GET /vehicles/<id>/update_required_personnel_alert` fires after each assignment (empty `200`
+  body in this capture) — looks like a UI badge refresh, not load-bearing for automation.
+- `GET /api/buildings/<id>` (single-building detail, as opposed to the `/api/buildings` list)
+  confirmed fields: `personal_count`, `personal_count_target`, `hiring_phase`, `hiring_automatic`,
+  `enabled`, `leitstelle_building_id` — directly relevant to the still-unconfirmed hiring and
+  service-toggle actions below.
+- `GET /api/vehicles` (list, all owned vehicles) confirmed fields include `assigned_personnel_count`,
+  `vehicle_type`, `building_id`, `caption`, `fms_real`/`fms_show` (status codes, meaning
+  unconfirmed).
+- **Gap: no way yet to discover available personnel_ids/names before assignment.** The page at
+  `/vehicles/<id>/zuweisung` (referenced as the `Referer` on every `zuweisungDo` call) must list
+  them, but its own `GET` was never captured — it was already open before recording started. Need
+  a HAR capture that starts *before* opening that page for a station with unassigned personnel.
+
 ## Not yet captured (needed before Phase 5 write actions)
 
 `POST /buildings` (building creation) is now confirmed against a real successful build — see
@@ -386,14 +430,15 @@ above. Everything else below is still unconfirmed and must not be guessed at imp
 - Station expansion / level upgrade (`/buildings/:id/expand` or similar)
 - Vehicle purchase (`/buildings/:id/vehicles/new` and its POST target, plus bay-capacity limits)
 - Hiring (1/3/7-day) page and POST, and how `hiring_phase`/`hiring_automatic` map to those options
-- Personnel-to-vehicle assignment, and how education/training requirements surface (to implement
-  "skip and log" behavior)
+- **Personnel-to-vehicle assignment: mostly confirmed now** — see the section above for the
+  `zuweisungDo` endpoint. Still missing: the `GET /vehicles/:id/zuweisung` listing page (how
+  personnel_ids/names are discovered before assignment), and how education/training requirements
+  surface (to implement "skip and log" behavior).
 - Service-state toggle (enable/disable an existing station) — likely a `PATCH`/`POST` on
   `/buildings/:id`, but the exact path/params are unconfirmed
 - Dispatch-center creation, and **re-assigning an already-built station** to a different center
 - Equipment purchase/assignment
 
-Before Phase 5 (and ideally before Phase 4's single test-station build), we need one more capture
-covering: submitting the build form for real, opening `/buildings/:id`, its expand UI, its
-vehicle-purchase UI, its hiring UI, assigning personnel to one vehicle, toggling a station out of
+Still need captures covering: `/buildings/:id/expand` (or equivalent), the vehicle-purchase UI,
+the hiring UI, the `/vehicles/:id/zuweisung` personnel-listing page, toggling a station out of
 service and back, and (if reachable) reassigning a station's dispatch center.
