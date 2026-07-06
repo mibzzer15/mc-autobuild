@@ -8,8 +8,15 @@ from mc_autobuilder.auth import (
     _has_password_form,
     _save_session_cookies,
     _storage_state_to_jar,
+    check_session_alive,
     extract_csrf_token,
 )
+
+
+class FakeResponse:
+    def __init__(self, status_code: int, text: str):
+        self.status_code = status_code
+        self.text = text
 
 DEVISE_STYLE_LOGIN_PAGE = """
 <html><body>
@@ -142,3 +149,28 @@ def test_save_session_cookies_round_trips_through_storage_state(tmp_path):
     loaded = _storage_state_to_jar(path, "www.missionchief.com")
 
     assert {c.name: c.value for c in loaded} == {"session_id": "abc"}
+
+
+def test_check_session_alive_raises_on_401():
+    with pytest.raises(SessionExpiredError):
+        check_session_alive(FakeResponse(401, ""))
+
+
+def test_check_session_alive_raises_on_403():
+    with pytest.raises(SessionExpiredError):
+        check_session_alive(FakeResponse(403, ""))
+
+
+def test_check_session_alive_passes_for_authenticated_page():
+    check_session_alive(FakeResponse(200, '<html><meta name="csrf-token" content="x"></html>'))
+
+
+def test_check_session_alive_detects_login_page_beyond_first_5000_chars():
+    # Regression test: a real captured MissionChief homepage/sign-in page puts a large inline
+    # <script> block of building-type constants before the nav/login markers, easily pushing
+    # them past 5,000 characters. An earlier version of check_session_alive only searched
+    # response.text[:5000] and silently failed to detect a logged-out session as a result.
+    padding = "x" * 6000
+    html = f"<html><body>{padding}<a href=\"/users/sign_in\">Login</a></body></html>"
+    with pytest.raises(SessionExpiredError):
+        check_session_alive(FakeResponse(200, html))

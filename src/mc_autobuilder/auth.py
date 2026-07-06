@@ -145,13 +145,19 @@ def extract_csrf_token(html: str) -> str:
 
 
 def check_session_alive(response: requests.Response) -> None:
-    """Raise SessionExpiredError if a response looks like a logged-out/login page."""
+    """Raise SessionExpiredError if a response looks like a logged-out/login page.
+
+    Searches the *full* response body, not a truncated prefix: a real captured homepage/sign-in
+    page puts the login form well past the first 5,000 characters (a large inline <script> block
+    of building-type constants comes first), so an earlier truncated-prefix check silently
+    missed a logged-out session and let a stale/invalid cookie slip through undetected.
+    """
     if response.status_code in (401, 403):
         raise SessionExpiredError(
             f"MissionChief returned HTTP {response.status_code} — the session has likely expired."
         )
-    text_sample = response.text[:5000] if response.text else ""
-    if any(marker in text_sample for marker in LOGIN_PAGE_MARKERS):
+    text = response.text or ""
+    if any(marker in text for marker in LOGIN_PAGE_MARKERS):
         raise SessionExpiredError(
             "MissionChief returned a login page instead of the expected content — the session has "
             "expired."

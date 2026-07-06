@@ -163,7 +163,11 @@ def plan(
     geocode_session = requests.Session()
 
     logger.info("Fetching current building prices from %s ...", auth_config.base_url)
-    prices = mc_client.get_building_prices()
+    try:
+        prices = mc_client.get_building_prices()
+    except SessionExpiredError as exc:
+        typer.secho(f"Authentication failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
 
     per_type_caps = {bt.building_type: bt.max_per_run for bt in config.building_types if bt.max_per_run}
 
