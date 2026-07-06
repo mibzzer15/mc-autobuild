@@ -1,10 +1,10 @@
 # MissionChief API — Research Findings
 
-**Status:** Partially confirmed. Read endpoints, the username/password sign-in form, and the
-"build a new station" form are confirmed from real captures (HAR + direct page capture,
-2026-07). Several write actions (expand, vehicle purchase, hiring, personnel assignment, service
-toggle, dispatch reassignment) are **not yet captured** — see "Not yet captured" below before
-implementing Phases 4–5.
+**Status:** Partially confirmed. Read endpoints, the username/password sign-in form, and
+building a new station (`POST /buildings`, including a real successful build) are confirmed
+against the live site. Several write actions for later phases (expand, vehicle purchase, hiring,
+personnel assignment, service toggle, dispatch reassignment) are **not yet captured** — see "Not
+yet captured" below before implementing Phase 5.
 
 ## Source
 
@@ -251,9 +251,16 @@ Returns an HTML fragment with the building-creation form:
 - **Never use the `Build <n> Coins` submit value** — Coins are real-money premium currency. Our
   app must only ever submit the Credits button, and should treat any Coins-price fallback as a
   hard stop, not something to automate around.
-- Actual POST response (redirect target / success payload / error format e.g. insufficient
-  funds) was **not captured** — the form was only loaded, not submitted, in this session. Needs a
-  follow-up capture before Phase 4.
+- **Update (Phase 4, real test build against a live account):** a successful `POST /buildings`
+  returns `302` redirecting to `/buildings`. `mc_client.py`'s `create_building` deliberately does
+  **not** follow that redirect (`allow_redirects=False`) — the redirect target's own real
+  behavior/response shape is still unconfirmed, and `requests` following it by default meant a
+  perfectly successful build could get misreported as a failure if that target page ever returns
+  a non-2xx status for any reason. Success is instead verified independently: `GET
+  /api/buildings` is read before and after the POST, and a new entry of the right
+  `building_type` appearing is what counts as success. The error-response shape (e.g.
+  insufficient funds) is still unconfirmed — `create_building` doesn't try to parse one, it just
+  reports "no new building appeared" and asks you to check manually.
 - Each building type has its own `detail_<building_type>` block with its own field name for the
   starting-vehicle select (e.g. `start_vehicle_feuerwache` for a regular Fire station,
   `start_vehicle_feuerwache_kleinwache` for the small variant) — the exact field name per type
@@ -313,13 +320,14 @@ The dropdown lists the account's existing dispatch centers by name → id, e.g. 
 this form field; reassignment of an *already-built* station to a different center is a separate,
 not-yet-captured action.
 
-## Not yet captured (needed before Phases 4–5 write actions)
+## Not yet captured (needed before Phase 5 write actions)
 
-The supplied capture recorded only page loads and read polling, not action submissions. These
-remain **unconfirmed** and must not be guessed at implementation time:
+`POST /buildings` (building creation) is now confirmed against a real successful build — see
+above. Everything else below is still unconfirmed and must not be guessed at implementation time:
 
-- The actual `POST /buildings` response (success/redirect shape, and the error shape for
-  insufficient funds or invalid params)
+- The error-response shape for a *failed* `POST /buildings` (insufficient funds, invalid params,
+  etc.) — not yet seen; `create_building` currently just reports "couldn't confirm success"
+  without distinguishing why
 - Station expansion / level upgrade (`/buildings/:id/expand` or similar)
 - Vehicle purchase (`/buildings/:id/vehicles/new` and its POST target, plus bay-capacity limits)
 - Hiring (1/3/7-day) page and POST, and how `hiring_phase`/`hiring_automatic` map to those options

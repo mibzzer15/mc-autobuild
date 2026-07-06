@@ -1,4 +1,11 @@
-from mc_autobuilder.models import Building, get_session_factory, init_db, upsert_buildings
+from mc_autobuilder.models import (
+    Building,
+    get_session_factory,
+    has_completed_action,
+    init_db,
+    record_completed_action,
+    upsert_buildings,
+)
 
 SAMPLE_BUILDING = {
     "id": 778773,
@@ -46,3 +53,32 @@ def test_upsert_is_idempotent_and_updates_in_place():
         obj = db.get(Building, 778773)
         assert obj.enabled is False
         assert obj.caption == "ACFD Station 10 (renamed)"
+
+
+def test_has_completed_action_returns_none_when_not_recorded():
+    factory = _memory_session_factory()
+    with factory() as db:
+        assert has_completed_action(db, "build", poi_id=42) is None
+
+
+def test_record_and_check_completed_action():
+    factory = _memory_session_factory()
+    with factory() as db:
+        record_completed_action(
+            db,
+            action_type="build",
+            poi_id=42,
+            building_id=999,
+            building_type=0,
+            name="Test Fire Station",
+            cost=500_000,
+        )
+
+        found = has_completed_action(db, "build", poi_id=42)
+        assert found is not None
+        assert found.building_id == 999
+        assert found.cost == 500_000
+
+        # A different poi_id, or a different action_type, isn't the same completed action.
+        assert has_completed_action(db, "build", poi_id=43) is None
+        assert has_completed_action(db, "expand", poi_id=42) is None

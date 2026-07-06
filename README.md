@@ -14,10 +14,10 @@ database this tool builds on. See `docs/rlm-api.md` for what we've confirmed abo
   Leitstellenspiel's terms generally prohibit botting/automation. Running this tool is your own
   decision and risk — it may get your account warned, suspended, or banned. Nothing here is legal
   advice.
-- **Dry-run is the plan for every write-capable command** (not built yet — see Status below).
-  Nothing in the current build spends in-game currency or modifies your account. `sync` and
-  `plan` are both read-only: `plan` fetches your current building prices to estimate cost, but
-  never submits a build.
+- **`build` spends real in-game credits.** It's dry-run by default (shows what it would submit
+  and the current price, spends nothing) and requires both an explicit `--execute` flag *and* an
+  interactive confirmation naming the exact station and price before it submits anything. `sync`
+  and `plan` are fully read-only.
 - Your session cookie is equivalent to your password for this game. Treat `.env` and
   `storage_state.json` like credentials: never commit them, never share them.
 
@@ -30,13 +30,12 @@ This is being built in phases; only what's actually implemented is documented be
 | 0 | Research: RLM + MissionChief API docs | Done — `docs/rlm-api.md`, `docs/missionchief-api.md` |
 | 1 | Auth + read-only building sync | **Done** — `mc-autobuilder login` / `sync` |
 | 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
-| 4 | Build execution (single test station) | Not started |
+| 4 | Build execution (single station at a time) | **Done** — `mc-autobuilder build` |
 | 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | Not started |
 | 6 | Web dashboard | Not started |
 
-Commands that don't exist yet: `build`, `expand`, `vehicles`, `hire`, `assign`, `service`,
-`dispatch`, `run`. Nothing in the current build can spend credits or change your account —
-`plan` only reads.
+Commands that don't exist yet: `expand`, `vehicles`, `hire`, `assign`, `service`, `dispatch`,
+`run`.
 
 ## Requirements
 
@@ -211,12 +210,37 @@ skips any that are within `dedupe.radius_m` of a building you already have of th
 respects each type's `max_per_run` cap and the overall `budget.max_credits_per_run`, and fetches
 your account's *current* build prices (which scale with progression, so they're never
 hardcoded) to estimate total cost. It writes the full result to `plan.json` and prints a summary
-table. **This is read-only** — it never builds anything or spends credits; that's a later phase.
+table. **This is read-only** — it never builds anything or spends credits.
 
 RLM's API responses are cached locally under `.rlm_cache/` per `rlm_cache.ttl_hours` in your
 config, so re-running `plan` doesn't re-fetch a region's data on every run.
 
-### 8. Re-authenticating when your session expires
+### 8. Build one station from the plan
+
+Every entry in `plan.json`'s `to_build` list has a `poi_id`. Pick one and preview it:
+
+```bash
+mc-autobuilder build --poi-id 12345
+```
+
+With no `--execute`, this only prints the station name, location, and current price — it
+submits nothing. When you're ready to actually build it:
+
+```bash
+mc-autobuilder build --poi-id 12345 --execute
+```
+
+This re-checks the live price immediately before submitting (prices drift over time), asks you
+to confirm the exact station and cost interactively, and only then submits the build. It records
+what it built locally, so running the same `--poi-id` again just reports "already built" instead
+of building a duplicate.
+
+There's no confirmed way yet to read your live credit balance (see docs/missionchief-api.md), so
+`budget.credit_reserve` in `config.yaml` isn't enforced here — if a build would fail for
+insufficient funds, MissionChief itself is the backstop, and `build` will report that it
+couldn't confirm the station was created rather than assume success.
+
+### 9. Re-authenticating when your session expires
 
 If `sync` fails with an authentication error (expired/invalid session), it will tell you plainly
 instead of failing silently. Fix it by:
@@ -259,12 +283,12 @@ pytest
 ```
 src/mc_autobuilder/
   auth.py         # cookie / credentials / Playwright auth, CSRF token handling, session-expiry detection
-  mc_client.py    # rate-limited MissionChief API client (buildings, live build prices)
+  mc_client.py    # rate-limited MissionChief API client (buildings, live build prices, create_building)
   rlm_client.py   # RLM POI database client (bbox queries, disk caching, city geocoding)
   planner.py      # pure dedupe/build-planning logic (haversine distance, budget/caps)
   config.py       # config.yaml loading and validation
-  models.py       # SQLite/SQLAlchemy local cache
-  cli.py          # typer CLI (`login`, `sync`, `plan`)
+  models.py       # SQLite/SQLAlchemy local cache + completed-action idempotency log
+  cli.py          # typer CLI (`login`, `sync`, `plan`, `build`)
 config.example.yaml
 docs/
   rlm-api.md            # RLM API research findings
