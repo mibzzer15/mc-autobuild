@@ -896,6 +896,60 @@ def assign_personnel(
     )
 
 
+@app.command()
+def set_dispatch_center(
+    building_id: int = typer.Option(..., help="MissionChief building id to reassign"),
+    leitstelle_id: int = typer.Option(..., help="Dispatch center building id to assign, or 0 to unassign"),
+    env_file: str = ".env",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually submit the reassignment. Without this, only previews it."
+    ),
+) -> None:
+    """Reassign a station's dispatch center (or pass --leitstelle-id 0 to unassign). Free — spends
+    no credits.
+
+    Dry-run by default: shows the station's current dispatch center, changes nothing. Pass
+    --execute for one confirmation before reassigning.
+    """
+    log_path = _setup_logging("set_dispatch_center")
+    logger = logging.getLogger("mc_autobuilder.set_dispatch_center")
+
+    mc_client = _run_write_action(logger, log_path, "set-dispatch-center", lambda: _build_client(env_file))
+    current = _run_write_action(
+        logger,
+        log_path,
+        "set-dispatch-center",
+        lambda: mc_client.get_building_detail(building_id).get("leitstelle_building_id"),
+    )
+
+    typer.echo("")
+    typer.secho(f"Building {building_id}: current dispatch center id {current}", bold=True)
+    typer.echo(
+        f"New dispatch center id: {leitstelle_id}" if leitstelle_id else "Unassign dispatch center (id 0)"
+    )
+
+    if not execute:
+        typer.echo("")
+        typer.secho(
+            "Dry run — pass --execute to actually reassign this. Nothing was submitted.", fg=typer.colors.CYAN
+        )
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    action_desc = f"reassign building {building_id} to dispatch center {leitstelle_id}" if leitstelle_id else f"unassign building {building_id}'s dispatch center"
+    if not typer.confirm(f"This will {action_desc}. Continue?"):
+        typer.echo("Cancelled — nothing was submitted.")
+        raise typer.Exit(code=0)
+
+    result = _run_write_action(
+        logger, log_path, "set-dispatch-center", lambda: mc_client.set_dispatch_center(building_id, leitstelle_id)
+    )
+    _report_write_result(
+        logger, log_path, result, "set-dispatch-center",
+        f"Building {building_id} is now assigned to dispatch center {leitstelle_id}.",
+    )
+
+
 def main() -> None:
     app()
 

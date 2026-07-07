@@ -244,6 +244,15 @@ class AssignPersonnelResult:
     response_text: str = ""
 
 
+@dataclass
+class DispatchAssignResult:
+    success: bool
+    building_id: int
+    leitstelle_id: int
+    response_status: int
+    response_text: str = ""
+
+
 # Confirmed in docs/missionchief-api.md: the game's frontend JS attaches these to every AJAX
 # call to /api/*, distinct from a plain browser navigation request (see auth.py's session
 # defaults, which deliberately do NOT set these — Rails responds differently to AJAX-flagged
@@ -576,6 +585,27 @@ class MissionChiefClient:
         return AssignPersonnelResult(
             success=success,
             assigned_personnel_count=after_count,
+            response_status=resp.status_code,
+            response_text="" if success else resp.text,
+        )
+
+    def set_dispatch_center(self, building_id: int, leitstelle_id: int) -> DispatchAssignResult:
+        """GET /buildings/<building_id>/leitstelle-set/<leitstelle_id> — (re)assign a station's
+        dispatch center; `leitstelle_id=0` unassigns it. Confirmed AJAX call (unlike
+        expand/toggle/vehicle-purchase/hire, which are plain links — docs/missionchief-api.md).
+        Uniquely among the write actions here, the response body directly echoes the change as
+        JSON (`{"building_id": ..., "leitstelle_id": ...}`), so success is read from the response
+        itself rather than a before/after diff."""
+        resp = self._request("GET", f"/buildings/{building_id}/leitstelle-set/{leitstelle_id}")
+        try:
+            data = resp.json() or {}
+        except ValueError:
+            data = {}
+        success = data.get("building_id") == building_id and data.get("leitstelle_id") == leitstelle_id
+        return DispatchAssignResult(
+            success=success,
+            building_id=building_id,
+            leitstelle_id=leitstelle_id,
             response_status=resp.status_code,
             response_text="" if success else resp.text,
         )

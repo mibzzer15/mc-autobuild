@@ -7,6 +7,7 @@ from mc_autobuilder.cli import app
 from mc_autobuilder.mc_client import (
     AssignPersonnelResult,
     BuildResult,
+    DispatchAssignResult,
     ExpandResult,
     HireResult,
     ServiceToggleResult,
@@ -489,3 +490,41 @@ def test_assign_personnel_execute_confirmed_reports_success(tmp_path, monkeypatc
 
     assert result.exit_code == 0
     assert "now has 3 assigned crew" in result.output
+
+
+def test_set_dispatch_center_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.get_building_detail",
+        lambda self, bid: {"leitstelle_building_id": 2534509},
+    )
+
+    result = runner.invoke(app, ["set-dispatch-center", "--building-id", "5558268", "--leitstelle-id", "0"])
+
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    assert "current dispatch center id 2534509" in result.output
+    assert "Unassign dispatch center" in result.output
+
+
+def test_set_dispatch_center_execute_confirmed_reports_success(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.get_building_detail",
+        lambda self, bid: {"leitstelle_building_id": 0},
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.set_dispatch_center",
+        lambda self, building_id, leitstelle_id: DispatchAssignResult(
+            success=True, building_id=building_id, leitstelle_id=leitstelle_id, response_status=200
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        ["set-dispatch-center", "--building-id", "5558268", "--leitstelle-id", "2534509", "--execute"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert "now assigned to dispatch center 2534509" in result.output

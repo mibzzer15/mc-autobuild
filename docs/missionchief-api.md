@@ -477,12 +477,38 @@ Fire Department Station 1", a Fire station) and its two vehicles (`14577420`, `1
   etc.) is still unconfirmed — `create_building` keeps the raw failed-POST response body on
   `BuildResult.response_text` (empty on success) so any future failure can be diagnosed from the
   log instead of guessing at markup that's never been seen.
-- Dispatch-center creation, and **re-assigning an already-built station** to a different center —
-  no reassignment UI/endpoint appeared anywhere in either capture, including on `/buildings/<id>`
-  itself. Still needs its own capture.
 - `hire_with_education` (paid/trained hiring) — form seen, never submitted.
 - Education/training gating on personnel assignment.
 - Equipment purchase/assignment.
+- Dispatch-center *creation* (a brand new dispatch center building is just `create_building` with
+  `building_type=1`, already covered — this is about the standalone admin page for creating one
+  without going through the map).
+
+## Dispatch-center reassignment (confirmed, 2026-07-07 HAR capture)
+
+### `GET /buildings/<building_id>/leitstelle-set/<leitstelle_id>`
+
+- Reassigns `building_id`'s dispatch center to `leitstelle_id`; **`leitstelle_id=0` unassigns it**.
+  Confirmed as a genuine AJAX call (`X-Requested-With: XMLHttpRequest`, `X-CSRF-Token`) — unlike
+  expand/toggle/vehicle-purchase/hire, which are plain links.
+- Response is small JSON that **directly echoes the change**: `{"building_id":5558268,
+  "leitstelle_id":2534509}` — so success is verified from the response body itself, not a
+  before/after diff (unlike every other write action documented so far, whose failure-response
+  shape is unconfirmed).
+- `GET /buildings/<leitstelle_id>/leitstelle-buildings` is the companion read page: an HTML table
+  of every building currently assigned to that dispatch center (name, extension level, hiring
+  phase, staff, "Personnel (Desired)"). Not needed to *perform* a reassignment, but useful context
+  — not implemented as its own command yet.
+
+### Incidental findings, not implemented (out of Phase 5's original scope)
+
+- `POST /buildings/<id>?personal_count_target_only=1` (body: `building[personal_count_target]=<n>&_method=put&authenticity_token=...`,
+  AJAX) sets a station's desired/target personnel count for auto-hiring — response is just the
+  plain-text number. Related to the already-confirmed `hiring_automatic`/`personal_count_target`
+  API fields, but a distinct action from `hire`/`hire_do`.
+- `POST /tasks/claim_all_rewards` (form: `authenticity_token` only, confirmed `302` to
+  `/tasks/index`) claims all completed in-game task rewards. Unrelated to station management;
+  noted for a future phase if ever wanted.
 
 Still need captures covering: `/buildings/:id/expand` (or equivalent), the vehicle-purchase UI,
 the hiring UI, the `/vehicles/:id/zuweisung` personnel-listing page, toggling a station out of

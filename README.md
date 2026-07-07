@@ -34,7 +34,7 @@ This is being built in phases; only what's actually implemented is documented be
 | 1 | Auth + read-only building sync | **Done** — `mc-autobuilder login` / `sync` |
 | 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
 | 4 | Build execution (one station, or a whole plan) | **Done** — `mc-autobuilder build` / `run` |
-| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | **In progress** — `expand`, `toggle-service`, `buy-vehicle`, `hire` done; dispatch reassignment not yet confirmed |
+| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | **Done** — `expand`, `toggle-service`, `buy-vehicle`, `hire`, `assign-personnel`, `set-dispatch-center` |
 | 6 | Web dashboard | Not started |
 
 Phase 5 commands, all dry-run by default with `--execute` + confirmation before anything changes
@@ -48,9 +48,10 @@ Phase 5 commands, all dry-run by default with `--execute` + confirmation before 
 - `mc-autobuilder assign-personnel --vehicle-id <id> --personal-id <id>` — toggle a person's crew
   binding to a vehicle (personnel ids come from `/buildings/<id>/personals` in the game; no CLI
   command surfaces that roster yet).
+- `mc-autobuilder set-dispatch-center --building-id <id> --leitstelle-id <id>` — reassign a
+  station's dispatch center (`--leitstelle-id 0` to unassign).
 
-Not yet implemented: dispatch-center reassignment (no confirmed endpoint yet — see
-`docs/missionchief-api.md`), `hire_with_education`, equipment purchase.
+Not yet implemented: `hire_with_education` (paid/trained hiring), equipment purchase.
 
 ## Requirements
 

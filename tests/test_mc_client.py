@@ -412,3 +412,44 @@ def test_assign_personnel_verified_by_assigned_personnel_count_changing():
     # Regression guard: unlike expand/active/vehicle-purchase, zuweisungDo IS a confirmed AJAX call.
     method, url, kwargs = session.calls[1]
     assert kwargs["headers"]["X-Requested-With"] == "XMLHttpRequest"
+
+
+def test_set_dispatch_center_verified_by_response_json_echoing_the_change():
+    # Real captured response: {"building_id":5558268,"leitstelle_id":2534509} - uniquely among
+    # these write actions, success is read straight from the response body, not a before/after diff.
+    session = FakeMCSession(
+        [FakeMCResponse(200, json_data={"building_id": 5558268, "leitstelle_id": 2534509})]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.set_dispatch_center(5558268, 2534509)
+
+    assert result.success is True
+    assert result.building_id == 5558268
+    assert result.leitstelle_id == 2534509
+    # Confirmed AJAX call (unlike expand/active/vehicle-purchase/hire, which are plain links).
+    method, url, kwargs = session.calls[0]
+    assert kwargs["headers"]["X-Requested-With"] == "XMLHttpRequest"
+
+
+def test_set_dispatch_center_supports_unassigning_with_zero():
+    session = FakeMCSession([FakeMCResponse(200, json_data={"building_id": 5558268, "leitstelle_id": 0})])
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.set_dispatch_center(5558268, 0)
+
+    assert result.success is True
+    assert result.leitstelle_id == 0
+
+
+def test_set_dispatch_center_reports_failure_when_response_does_not_match():
+    session = FakeMCSession([FakeMCResponse(200, text="<html>error</html>", json_data=None)])
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.set_dispatch_center(5558268, 2534509)
+
+    assert result.success is False
+    assert "error" in result.response_text
