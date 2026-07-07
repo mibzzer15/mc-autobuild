@@ -3,17 +3,17 @@
 {% block content %}
 <h1>Presets</h1>
 <p class="muted">
-  What to do to every station of a given type: expand to max level, a desired service state, a
-  free hiring phase, and a shopping list of vehicles. Applied automatically right after a station
-  of that type is built from the plan, and can also be re-applied to any existing station from its
-  detail page (safe to re-run — only takes the actions still needed).
+  What to do to every station of a given type: expand to a target level, a desired service state,
+  a free hiring phase, and a shopping list of vehicles (with crew). Applied automatically right
+  after a station of that type is built from the plan, and can also be re-applied to any existing
+  station from its detail page (safe to re-run — only takes the actions still needed).
 </p>
 <p class="muted">
-  Not covered yet: station extensions and equipment purchase — never confirmed against a real
-  account, so not automated (see docs/missionchief-api.md).
+  Not covered yet: station extensions, equipment purchase, and "auto" (premium) hiring — never
+  confirmed against a real account, so not automated (see docs/missionchief-api.md).
 </p>
 
-<table>
+<table class="sortable">
   <thead><tr><th>Building type</th><th>Configured</th><th></th></tr></thead>
   <tbody>
     {% for building_type, name in BUILDING_TYPES.items()|sort(attribute="1") %}
@@ -22,10 +22,10 @@
       <td>
         {% if building_type in presets %}
           {% set p = presets[building_type] %}
-          {{ "Max level" if p.max_level }}
+          {% if p.target_level %}Level {{ p.target_level }}{% endif %}
           {% if p.manage_service %}· {{ "Keep in service" if p.target_enabled else "Keep out of service" }}{% endif %}
           {% if p.hire_days %}· Recruit {{ p.hire_days }}d{% endif %}
-          {% if not p.max_level and not p.manage_service and not p.hire_days and p.vehicles_json == "[]" %}
+          {% if not p.target_level and not p.manage_service and not p.hire_days and p.vehicles_json == "[]" %}
             (nothing configured)
           {% endif %}
         {% else %}

@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Plan — mc-autobuilder{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<style>
+  #plan-map { height: 480px; border-radius: 8px; margin: 1rem 0; }
+</style>
+{% endblock %}
 {% block content %}
 <h1>Plan</h1>
 
@@ -12,18 +18,74 @@
   · Total estimated cost: {{ "{:,}".format(total_estimated_cost) }} credits
 </p>
 
-<table>
+<div class="card">
+  <h2>Map</h2>
+  <p class="muted">
+    Green = planned (to build), grey = already-synced existing stations. Map tiles load from
+    OpenStreetMap directly in your browser.
+  </p>
+  <div id="plan-map"></div>
+</div>
+
+<table class="sortable">
   <thead><tr><th>Name</th><th>Type</th><th>Estimated cost</th><th></th></tr></thead>
   <tbody>
     {% for e in entries %}
     <tr>
       <td>{{ e.name }}</td>
       <td>{{ e.building_type_name }}</td>
-      <td>{{ "{:,}".format(e.estimated_cost) if e.estimated_cost is not none else "unknown" }}</td>
+      <td data-sort="{{ e.estimated_cost if e.estimated_cost is not none else -1 }}">{{ "{:,}".format(e.estimated_cost) if e.estimated_cost is not none else "unknown" }}</td>
       <td><a href="/plan/build/confirm?poi_id={{ e.poi_id }}" class="btn">Build</a></td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+{% endif %}
+{% endblock %}
+{% block extra_scripts %}
+{% if not plan_missing %}
+<script src="/static/leaflet/leaflet.js"></script>
+<script>
+  var mcMapData = {{ map_data_json | safe }};
+
+  (function () {
+    var points = mcMapData.toBuild.concat(mcMapData.existing);
+    var center = points.length ? [points[0].lat, points[0].lng] : [0, 0];
+    var map = L.map("plan-map").setView(center, points.length ? 11 : 2);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19,
+    }).addTo(map);
+
+    var existingIcon = L.divIcon({
+      className: "",
+      html: '<div style="width:10px;height:10px;border-radius:50%;background:#8888;border:1px solid #666"></div>',
+      iconSize: [10, 10],
+    });
+    var plannedIcon = L.divIcon({
+      className: "",
+      html: '<div style="width:14px;height:14px;border-radius:50%;background:#1a7f37;border:2px solid #fff"></div>',
+      iconSize: [14, 14],
+    });
+
+    var bounds = [];
+    mcMapData.existing.forEach(function (b) {
+      var marker = L.marker([b.lat, b.lng], { icon: existingIcon }).addTo(map);
+      marker.bindPopup(b.name + " (" + b.type + ")");
+      bounds.push([b.lat, b.lng]);
+    });
+    mcMapData.toBuild.forEach(function (e) {
+      var costText = e.cost != null ? e.cost.toLocaleString() + " credits" : "cost unknown";
+      var marker = L.marker([e.lat, e.lng], { icon: plannedIcon }).addTo(map);
+      marker.bindPopup("<strong>" + e.name + "</strong><br>" + e.type + "<br>" + costText);
+      bounds.push([e.lat, e.lng]);
+    });
+
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }
+  })();
+</script>
 {% endif %}
 {% endblock %}

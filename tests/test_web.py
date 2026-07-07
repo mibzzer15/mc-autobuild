@@ -279,6 +279,56 @@ def test_plan_build_two_step_flow(client, monkeypatch, tmp_path):
     assert "0 station(s) to build" in resp2.text or "already done" in resp2.text
 
 
+def test_plan_map_includes_station_coordinates_for_leaflet(client, tmp_path):
+    _login(client)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "to_build": [
+                    {
+                        "poi_id": 5, "poi_name": "Test", "building_type": 5,
+                        "building_type_name": "Police station", "name": "Test Police Station",
+                        "latitude": 37.7749, "longitude": -122.4194, "estimated_cost": 100_000,
+                    }
+                ]
+            }
+        )
+    )
+    client.app.state.plan_path = str(plan_path)
+
+    resp = client.get("/plan")
+    assert "leaflet.js" in resp.text
+    assert "37.7749" in resp.text
+    assert "-122.4194" in resp.text
+
+
+def test_plan_map_data_escapes_script_breakout_in_station_names(client, tmp_path):
+    # Station/POI names come from community-submitted RLM data - guard against a name like
+    # "</script><script>alert(1)</script>" breaking out of the embedded JSON <script> block.
+    _login(client)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "to_build": [
+                    {
+                        "poi_id": 5, "poi_name": "Test", "building_type": 5,
+                        "building_type_name": "Police station",
+                        "name": "</script><script>alert(1)</script>",
+                        "latitude": 1.0, "longitude": 2.0, "estimated_cost": 100_000,
+                    }
+                ]
+            }
+        )
+    )
+    client.app.state.plan_path = str(plan_path)
+
+    resp = client.get("/plan")
+    assert "</script><script>alert(1)" not in resp.text
+    assert "\\u003c/script>\\u003cscript>alert(1)\\u003c/script>" in resp.text
+
+
 def _wait_for(predicate, timeout=3.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -307,25 +357,26 @@ def test_preset_save_and_reload_round_trips(client):
     resp = client.post(
         "/presets/0",
         data={
-            "max_level": "on",
-            "manage_service": "on",
-            "target_enabled": "on",
+            "target_level": "20",
+            "service_state": "on",
             "hire_days": "3",
-            "vehicle_type_id": ["0", ""],
-            "vehicle_count": ["2", ""],
+            "vehicle_type_id": ["0"] + [""] * 14,
+            "vehicle_count": ["2"] + [""] * 14,
+            "vehicle_personnel": ["4"] + [""] * 14,
         },
         follow_redirects=False,
     )
     assert resp.status_code == 303
 
     resp = client.get("/presets/0")
-    assert 'checked' in resp.text
-    assert 'value="3"' in resp.text  # hire_days
+    assert 'value="20"' in resp.text  # target_level
+    assert 'value="3"' not in resp.text or "selected" in resp.text  # hire_days is now a <select>
     assert 'value="0"' in resp.text  # vehicle_type_id
     assert 'value="2"' in resp.text  # vehicle_count
+    assert 'value="4"' in resp.text  # vehicle_personnel
 
     resp = client.get("/presets")
-    assert "Max level" in resp.text
+    assert "Level 20" in resp.text
     assert "Keep in service" in resp.text
     assert "Recruit 3d" in resp.text
 
@@ -411,3 +462,59 @@ def test_plan_build_auto_applies_preset_when_one_is_configured(client, monkeypat
 
     session_factory = client.app.state.session_factory
     assert _wait_for(lambda: len(get_preset_log(session_factory(), 555)) > 0)
+
+
+def test_config_edit_shows_helpful_message_when_missing(client):
+    _login(client)
+    resp = client.get("/config")
+    assert "No config.yaml found yet" in resp.text
+
+
+def test_config_save_and_reload_round_trips(client, tmp_path):
+    _login(client)
+    client.app.state.config_file = str(tmp_path / "config.yaml")
+
+    resp = client.post(
+        "/config",
+        data={
+            "game_world": "US",
+            "base_url": "https://www.missionchief.com",
+            "region_name": ["Bay Area"] + [""] * 14,
+            "region_mode": ["bbox"] * 15,
+            "region_north": ["38.0"] + [""] * 14,
+            "region_south": ["37.2"] + [""] * 14,
+            "region_east": ["-121.7"] + [""] * 14,
+            "region_west": ["-122.6"] + [""] * 14,
+            "region_city": [""] * 15,
+            "region_center_lat": [""] * 15,
+            "region_center_lng": [""] * 15,
+            "region_radius_km": [""] * 15,
+            "bt_poi_type": ["poi_fire_station"] + [""] * 14,
+            "bt_building_type": ["0"] + [""] * 14,
+            "bt_max_per_run": ["5"] + [""] * 14,
+            "dedupe_radius_m": "150",
+            "naming_template": "{poi_name}",
+            "max_credits_per_run": "5000000",
+            "credit_reserve": "1000000",
+            "rlm_cache_ttl_hours": "24",
+            "rlm_cache_dir": ".rlm_cache",
+            "rate_limit_min_delay": "2",
+            "rate_limit_max_delay": "5",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    from mc_autobuilder.config import Config
+
+    config = Config.from_yaml(tmp_path / "config.yaml")
+    assert config.game_world == "US"
+    assert config.regions[0].name == "Bay Area"
+    assert config.regions[0].bbox == {"north": 38.0, "south": 37.2, "east": -121.7, "west": -122.6}
+    assert config.building_types[0].poi_type == "poi_fire_station"
+    assert config.building_types[0].max_per_run == 5
+    assert config.max_credits_per_run == 5_000_000
+
+    resp = client.get("/config")
+    assert "Bay Area" in resp.text
+    assert 'value="38.0"' in resp.text

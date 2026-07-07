@@ -27,6 +27,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from ..auth import AuthConfig, SessionExpiredError, build_session
+from ..config import load_raw_config, save_raw_config
 from ..constants import BUILDING_TYPES
 from ..mc_client import MissionChiefClient, summarize_html_for_log
 from ..models import (
@@ -45,6 +46,39 @@ from ..presets import apply_preset, parse_vehicles_json
 from ..web_config import WebConfig
 
 logger = logging.getLogger("mc_autobuilder.web")
+
+
+def _safe_json_for_script(data) -> str:
+    """JSON for embedding directly in a <script> block via `{{ ... | safe }}`. Station/POI names
+    come from community-submitted RLM data, not something we control, so escape `<` as \\u003c -
+    still valid JSON, but makes a `</script>` breakout impossible regardless of what's in there."""
+    return json.dumps(data).replace("<", "\\u003c")
+
+
+def _region_to_row(region: dict) -> dict:
+    """Normalizes a config.yaml region entry (exactly one of bbox/city/center) into a flat dict
+    for the Config editor form, which shows one row per region with a single "mode" selector."""
+    row = {
+        "name": region.get("name", ""),
+        "north": "", "south": "", "east": "", "west": "",
+        "city": "", "center_lat": "", "center_lng": "", "radius_km": "",
+    }
+    if region.get("bbox"):
+        row["mode"] = "bbox"
+        row.update(region["bbox"])
+    elif region.get("city"):
+        row["mode"] = "city"
+        row["city"] = region["city"]
+        row["radius_km"] = region.get("radius_km", "")
+    elif region.get("center"):
+        row["mode"] = "center"
+        row["center_lat"] = region["center"].get("lat", "")
+        row["center_lng"] = region["center"].get("lng", "")
+        row["radius_km"] = region.get("radius_km", "")
+    else:
+        row["mode"] = "bbox"
+    return row
+
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -496,26 +530,138 @@ def create_app(
     @app.post("/presets/{building_type}")
     async def preset_save(request: Request, building_type: int, _: None = Depends(require_login)):
         form = await request.form()
-        hire_days_raw = (form.get("hire_days") or "").strip()
+        target_level_raw = (form.get("target_level") or "").strip()
+        service_state = form.get("service_state") or ""  # "" | "on" | "off"
+        hire_days_raw = form.get("hire_days") or ""  # "1" | "2" | "3" - "auto" isn't implemented yet
 
         vehicles = []
-        for vt_raw, count_raw in zip(form.getlist("vehicle_type_id"), form.getlist("vehicle_count")):
-            vt_raw, count_raw = vt_raw.strip(), count_raw.strip()
+        for vt_raw, count_raw, crew_raw in zip(
+            form.getlist("vehicle_type_id"), form.getlist("vehicle_count"), form.getlist("vehicle_personnel")
+        ):
+            vt_raw, count_raw, crew_raw = vt_raw.strip(), count_raw.strip(), crew_raw.strip()
             if vt_raw and count_raw and int(count_raw) > 0:
-                vehicles.append({"vehicle_type_id": int(vt_raw), "count": int(count_raw)})
+                vehicles.append({
+                    "vehicle_type_id": int(vt_raw),
+                    "count": int(count_raw),
+                    "personnel_per_vehicle": int(crew_raw) if crew_raw else 0,
+                })
 
         with db_session(request) as db:
             save_preset(
                 db,
                 building_type,
-                max_level=form.get("max_level") == "on",
-                manage_service=form.get("manage_service") == "on",
-                target_enabled=form.get("target_enabled") == "on",
-                hire_days=int(hire_days_raw) if hire_days_raw else None,
+                target_level=int(target_level_raw) if target_level_raw else None,
+                manage_service=service_state != "",
+                target_enabled=service_state != "off",
+                hire_days=int(hire_days_raw) if hire_days_raw in ("1", "2", "3") else None,
                 vehicles=vehicles,
             )
         type_name = BUILDING_TYPES.get(building_type, f"Type {building_type}")
         return flash_redirect("/presets", f"Saved preset for {type_name}.")
+
+    # ---------------------------------------------------------------- config
+
+    @app.get("/config", response_class=HTMLResponse)
+    def config_edit(request: Request, _: None = Depends(require_login)):
+        raw = load_raw_config(request.app.state.config_file)
+        mission_chief = raw.get("mission_chief", {})
+        regions = [_region_to_row(r) for r in raw.get("regions", [])]
+        building_types = [
+            {"poi_type": poi_type, **cfg} for poi_type, cfg in (raw.get("building_types") or {}).items()
+        ]
+        dedupe = raw.get("dedupe", {})
+        naming = raw.get("naming", {})
+        budget = raw.get("budget", {})
+        rlm_cache = raw.get("rlm_cache", {})
+        rate_limiting = raw.get("rate_limiting", {})
+
+        return templates.TemplateResponse(
+            request,
+            "config_edit.html",
+            {
+                "config_exists": bool(raw),
+                "game_world": mission_chief.get("game_world", ""),
+                "base_url": mission_chief.get("base_url", ""),
+                "regions": regions,
+                "building_types": building_types,
+                "dedupe_radius_m": dedupe.get("radius_m", 150),
+                "naming_template": naming.get("template", "{poi_name}"),
+                "max_credits_per_run": budget.get("max_credits_per_run"),
+                "credit_reserve": budget.get("credit_reserve", 0),
+                "rlm_cache_ttl_hours": rlm_cache.get("ttl_hours", 24),
+                "rlm_cache_dir": rlm_cache.get("cache_dir", ".rlm_cache"),
+                "rate_limit_min_delay": rate_limiting.get("min_delay_seconds", 2),
+                "rate_limit_max_delay": rate_limiting.get("max_delay_seconds", 5),
+                **flash_context(request),
+            },
+        )
+
+    @app.post("/config")
+    async def config_save(request: Request, _: None = Depends(require_login)):
+        form = await request.form()
+
+        regions = []
+        for i in range(len(form.getlist("region_name"))):
+            name = form.getlist("region_name")[i].strip()
+            if not name:
+                continue
+            mode = form.getlist("region_mode")[i]
+            region: dict = {"name": name}
+            if mode == "bbox":
+                region["bbox"] = {
+                    "north": float(form.getlist("region_north")[i]),
+                    "south": float(form.getlist("region_south")[i]),
+                    "east": float(form.getlist("region_east")[i]),
+                    "west": float(form.getlist("region_west")[i]),
+                }
+            elif mode == "city":
+                region["city"] = form.getlist("region_city")[i].strip()
+                region["radius_km"] = float(form.getlist("region_radius_km")[i])
+            elif mode == "center":
+                region["center"] = {
+                    "lat": float(form.getlist("region_center_lat")[i]),
+                    "lng": float(form.getlist("region_center_lng")[i]),
+                }
+                region["radius_km"] = float(form.getlist("region_radius_km")[i])
+            regions.append(region)
+
+        building_types = {}
+        for poi_type, bt_raw, max_raw in zip(
+            form.getlist("bt_poi_type"), form.getlist("bt_building_type"), form.getlist("bt_max_per_run")
+        ):
+            poi_type = poi_type.strip()
+            if not poi_type or not bt_raw.strip():
+                continue
+            entry = {"building_type": int(bt_raw)}
+            if max_raw.strip():
+                entry["max_per_run"] = int(max_raw)
+            building_types[poi_type] = entry
+
+        max_credits_raw = (form.get("max_credits_per_run") or "").strip()
+        data = {
+            "mission_chief": {
+                "game_world": (form.get("game_world") or "").strip(),
+                "base_url": (form.get("base_url") or "").strip() or "https://www.missionchief.com",
+            },
+            "regions": regions,
+            "building_types": building_types,
+            "dedupe": {"radius_m": float(form.get("dedupe_radius_m") or 150)},
+            "naming": {"template": form.get("naming_template") or "{poi_name}"},
+            "budget": {
+                "max_credits_per_run": int(max_credits_raw) if max_credits_raw else None,
+                "credit_reserve": int(form.get("credit_reserve") or 0),
+            },
+            "rlm_cache": {
+                "ttl_hours": float(form.get("rlm_cache_ttl_hours") or 24),
+                "cache_dir": form.get("rlm_cache_dir") or ".rlm_cache",
+            },
+            "rate_limiting": {
+                "min_delay_seconds": float(form.get("rate_limit_min_delay") or 2),
+                "max_delay_seconds": float(form.get("rate_limit_max_delay") or 5),
+            },
+        }
+        save_raw_config(request.app.state.config_file, data)
+        return flash_redirect("/config", "Saved config.yaml.")
 
     # ---------------------------------------------------------------- plan
 
@@ -530,6 +676,25 @@ def create_app(
         entries = data.get("to_build", [])
         with db_session(request) as db:
             pending = [e for e in entries if has_completed_action(db, "build", e["poi_id"]) is None]
+            existing = db.query(Building).all()
+
+        map_data = {
+            "toBuild": [
+                {
+                    "lat": e["latitude"], "lng": e["longitude"], "name": e["name"],
+                    "type": e["building_type_name"],
+                    "cost": e.get("estimated_cost"), "poiId": e["poi_id"],
+                }
+                for e in pending
+            ],
+            "existing": [
+                {
+                    "lat": b.latitude, "lng": b.longitude, "name": b.caption,
+                    "type": BUILDING_TYPES.get(b.building_type, f"Type {b.building_type}"),
+                }
+                for b in existing
+            ],
+        }
         return templates.TemplateResponse(
             request,
             "plan.html",
@@ -538,6 +703,7 @@ def create_app(
                 "already_done": len(entries) - len(pending),
                 "total_estimated_cost": sum(e.get("estimated_cost") or 0 for e in pending),
                 "plan_missing": False,
+                "map_data_json": _safe_json_for_script(map_data),
                 **flash_context(request),
             },
         )

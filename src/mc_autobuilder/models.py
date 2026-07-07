@@ -49,19 +49,19 @@ class CompletedAction(Base):
 
 
 class StationPreset(Base):
-    """One row per building_type: what to do to every station of that type — expand to max
-    level, a desired service state, a free hiring phase, and a shopping list of vehicles.
-    Applying a preset (presets.py) is idempotent, so this table only needs to describe the
-    *target* state, not a one-shot script."""
+    """One row per building_type: what to do to every station of that type — expand to a target
+    level, a desired service state, a free hiring phase, and a shopping list of vehicles (each
+    optionally with crew to assign). Applying a preset (presets.py) is idempotent, so this table
+    only needs to describe the *target* state, not a one-shot script."""
 
     __tablename__ = "station_presets"
 
     building_type = Column(Integer, primary_key=True)
-    max_level = Column(Boolean, nullable=False, default=False)
+    target_level = Column(Integer, nullable=True)  # 1-39; None = don't manage expand
     manage_service = Column(Boolean, nullable=False, default=False)
     target_enabled = Column(Boolean, nullable=False, default=True)
-    hire_days = Column(Integer, nullable=True)
-    # JSON list of {"vehicle_type_id": int, "count": int} - see presets.py.
+    hire_days = Column(Integer, nullable=True)  # 1, 2, or 3 - confirmed live options (no "auto" yet)
+    # JSON list of {"vehicle_type_id": int, "count": int, "personnel_per_vehicle": int} - presets.py.
     vehicles_json = Column(Text, nullable=False, default="[]")
     updated_at = Column(DateTime, nullable=False)
 
@@ -170,7 +170,7 @@ def save_preset(
     db: Session,
     building_type: int,
     *,
-    max_level: bool,
+    target_level: int | None,
     manage_service: bool,
     target_enabled: bool,
     hire_days: int | None,
@@ -180,7 +180,7 @@ def save_preset(
     if obj is None:
         obj = StationPreset(building_type=building_type)
         db.add(obj)
-    obj.max_level = max_level
+    obj.target_level = target_level
     obj.manage_service = manage_service
     obj.target_enabled = target_enabled
     obj.hire_days = hire_days

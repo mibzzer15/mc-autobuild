@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Config — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>Config</h1>
+<p class="muted">
+  Edits the same <code>config.yaml</code> the CLI's <code>plan</code> command reads — saving here
+  overwrites it (comments in the existing file are not preserved). See
+  <code>config.example.yaml</code> for the full field reference.
+</p>
+{% if not config_exists %}
+<p class="flash flash-error">No config.yaml found yet — fill this in and save to create one.</p>
+{% endif %}
+
+<form method="post" action="/config">
+  <div class="card">
+    <h2>MissionChief server</h2>
+    <label for="game_world">game_world (RLM code, e.g. US)</label><br>
+    <input type="text" id="game_world" name="game_world" value="{{ game_world }}" required><br><br>
+    <label for="base_url">base_url</label><br>
+    <input type="text" id="base_url" name="base_url" value="{{ base_url }}" style="width:24rem">
+  </div>
+
+  <div class="card">
+    <h2>Regions</h2>
+    <p class="muted">Exactly one of bbox / city+radius / center+radius per region — pick a mode and fill in only that section's fields.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Mode</th>
+            <th>North</th><th>South</th><th>East</th><th>West</th>
+            <th>City</th>
+            <th>Center lat</th><th>Center lng</th><th>Radius km</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for i in range(15) %}
+          {% set r = regions[i] if i < regions|length else none %}
+          <tr>
+            <td><input type="text" name="region_name" value="{{ r.name if r is not none }}"></td>
+            <td>
+              <select name="region_mode">
+                <option value="bbox" {{ "selected" if r is none or r.mode == "bbox" }}>bbox</option>
+                <option value="city" {{ "selected" if r is not none and r.mode == "city" }}>city</option>
+                <option value="center" {{ "selected" if r is not none and r.mode == "center" }}>center</option>
+              </select>
+            </td>
+            <td><input type="number" step="any" name="region_north" value="{{ r.north if r is not none }}"></td>
+            <td><input type="number" step="any" name="region_south" value="{{ r.south if r is not none }}"></td>
+            <td><input type="number" step="any" name="region_east" value="{{ r.east if r is not none }}"></td>
+            <td><input type="number" step="any" name="region_west" value="{{ r.west if r is not none }}"></td>
+            <td><input type="text" name="region_city" value="{{ r.city if r is not none }}"></td>
+            <td><input type="number" step="any" name="region_center_lat" value="{{ r.center_lat if r is not none }}"></td>
+            <td><input type="number" step="any" name="region_center_lng" value="{{ r.center_lng if r is not none }}"></td>
+            <td><input type="number" step="any" name="region_radius_km" value="{{ r.radius_km if r is not none }}"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Leave a row's name blank to skip it.</p>
+  </div>
+
+  <div class="card">
+    <h2>Building types</h2>
+    <p class="muted">
+      poi_type must match a `table_name` from RLM's `/api/poi-types`; building_type must match
+      your server's `/api/building-types?game_world=...` (see docs/rlm-api.md).
+    </p>
+    <table>
+      <thead><tr><th>poi_type</th><th>building_type</th><th>max_per_run</th></tr></thead>
+      <tbody>
+        {% for i in range(15) %}
+        {% set bt = building_types[i] if i < building_types|length else none %}
+        <tr>
+          <td><input type="text" name="bt_poi_type" value="{{ bt.poi_type if bt is not none }}"></td>
+          <td><input type="number" name="bt_building_type" value="{{ bt.building_type if bt is not none }}"></td>
+          <td><input type="number" name="bt_max_per_run" value="{{ bt.max_per_run if bt is not none and bt.max_per_run is not none }}"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">Leave a row's poi_type blank to skip it.</p>
+  </div>
+
+  <div class="card">
+    <h2>Dedupe</h2>
+    <label for="dedupe_radius_m">radius_m</label><br>
+    <input type="number" step="any" id="dedupe_radius_m" name="dedupe_radius_m" value="{{ dedupe_radius_m }}">
+  </div>
+
+  <div class="card">
+    <h2>Naming</h2>
+    <label for="naming_template">template (placeholders: {poi_name}, {city})</label><br>
+    <input type="text" id="naming_template" name="naming_template" value="{{ naming_template }}" style="width:24rem">
+  </div>
+
+  <div class="card">
+    <h2>Budget</h2>
+    <label for="max_credits_per_run">max_credits_per_run (blank = no cap)</label><br>
+    <input type="number" id="max_credits_per_run" name="max_credits_per_run" value="{{ max_credits_per_run }}"><br><br>
+    <label for="credit_reserve">credit_reserve</label><br>
+    <input type="number" id="credit_reserve" name="credit_reserve" value="{{ credit_reserve }}">
+  </div>
+
+  <div class="card">
+    <h2>RLM cache</h2>
+    <label for="rlm_cache_ttl_hours">ttl_hours</label><br>
+    <input type="number" step="any" id="rlm_cache_ttl_hours" name="rlm_cache_ttl_hours" value="{{ rlm_cache_ttl_hours }}"><br><br>
+    <label for="rlm_cache_dir">cache_dir</label><br>
+    <input type="text" id="rlm_cache_dir" name="rlm_cache_dir" value="{{ rlm_cache_dir }}">
+  </div>
+
+  <div class="card">
+    <h2>Rate limiting</h2>
+    <label for="rate_limit_min_delay">min_delay_seconds</label><br>
+    <input type="number" step="any" id="rate_limit_min_delay" name="rate_limit_min_delay" value="{{ rate_limit_min_delay }}"><br><br>
+    <label for="rate_limit_max_delay">max_delay_seconds</label><br>
+    <input type="number" step="any" id="rate_limit_max_delay" name="rate_limit_max_delay" value="{{ rate_limit_max_delay }}">
+  </div>
+
+  <button type="submit" class="btn btn-primary">Save config.yaml</button>
+</form>
+{% endblock %}

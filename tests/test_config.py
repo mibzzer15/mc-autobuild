@@ -1,6 +1,6 @@
 import pytest
 
-from mc_autobuilder.config import Config, ConfigError
+from mc_autobuilder.config import Config, ConfigError, load_raw_config, save_raw_config
 
 VALID_YAML = """
 mission_chief:
@@ -157,3 +157,27 @@ naming:
     )
     with pytest.raises(ConfigError, match="unsupported placeholder"):
         Config.from_yaml(path)
+
+
+def test_load_raw_config_returns_empty_dict_when_file_missing(tmp_path):
+    assert load_raw_config(tmp_path / "does-not-exist.yaml") == {}
+
+
+def test_save_and_load_raw_config_round_trips(tmp_path):
+    path = tmp_path / "config.yaml"
+    data = {
+        "mission_chief": {"game_world": "US"},
+        "regions": [{"name": "Bay Area", "bbox": {"north": 1, "south": 0, "east": 1, "west": 0}}],
+        "building_types": {"poi_fire_station": {"building_type": 0, "max_per_run": 5}},
+    }
+    save_raw_config(path, data)
+
+    loaded = load_raw_config(path)
+    assert loaded == data
+
+
+def test_save_raw_config_orders_known_sections_first(tmp_path):
+    path = tmp_path / "config.yaml"
+    save_raw_config(path, {"budget": {"credit_reserve": 0}, "mission_chief": {"game_world": "US"}})
+    text = path.read_text()
+    assert text.index("mission_chief") < text.index("budget")

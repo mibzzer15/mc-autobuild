@@ -109,27 +109,55 @@ equivalent does.
 ### Presets
 
 The dashboard's **Presets** page lets you configure, per building type, what a station of that
-type should always end up looking like: expanded to its maximum level, a desired in/out-of-service
-state, a free day-based recruiting phase, and a shopping list of vehicles (by catalog
-`vehicle_type_id` + target count — the edit page shows a live catalog with real names/prices if
-you've already synced or built a station of that type).
+type should always end up looking like:
 
+- **Expand to level** — a specific target level (1-39), not just "max". Re-applying only buys
+  the rungs still needed to reach it.
+- **Service state** — a single selector: don't manage / keep in service / keep out of service.
+- **Hiring** — a free 1/2/3-day recruiting phase. "Auto" (premium-only) hiring is shown but
+  disabled — it was never confirmed against a real account (see `docs/missionchief-api.md`), so
+  it isn't wired up yet rather than guessed at.
+- **Vehicles** — up to 15 rows of catalog `vehicle_type_id` + target count (the edit page shows
+  a live catalog with real names/prices if you've already synced or built a station of that
+  type), each optionally with a **personnel-per-vehicle** count — after buying a vehicle, that
+  many currently-unassigned personnel from the station's roster get assigned as its crew
+  automatically.
+
+How it runs:
 - **Applied automatically** right after a station is built from the plan (CLI `build`/`run`, or
   the dashboard's Plan page) — no extra step needed.
 - **Re-appliable anytime** from any station's detail page via "Apply preset now" (or `mc-autobuilder
   apply-preset --building-id <id>` from the CLI) — useful after changing a preset, or to backfill
   stations built before the preset existed.
-- **Idempotent and safe to re-run**: it only takes the actions still needed (won't re-expand past
-  the level it's already at, won't toggle service state if it already matches, skips hiring if a
-  phase is already running, and won't over-buy vehicles past each type's target count).
-- **Runs in the background** on the dashboard (expanding to max level alone can be dozens of
+- **Idempotent and safe to re-run**: only takes the actions still needed (won't re-expand past the
+  target level, won't toggle service state if it already matches, skips hiring if a phase is
+  already running, won't over-buy vehicles past each type's target count, and won't assign the
+  same person to two different vehicles in one application).
+- **Runs in the background** on the dashboard (expanding several levels alone can be many
   sequential, rate-limited requests, so this can take minutes) — refresh the building's page to
   watch its action log fill in as it goes. The CLI version runs synchronously and prints progress
   as it happens.
 - **Scope, for now**: only actions already confirmed against a real account are covered (expand,
-  service toggle, vehicles, hiring). Station extensions and equipment purchase are **not**
-  included yet — those were never captured live (see `docs/missionchief-api.md`), so adding preset
-  support for them now would mean guessing at unconfirmed endpoints.
+  service toggle, vehicles, crew assignment, hiring). Station extensions, equipment purchase, and
+  "auto" hiring are **not** included yet — those were never captured live (see
+  `docs/missionchief-api.md`), so adding preset support for them now would mean guessing at
+  unconfirmed endpoints.
+
+### Config editor
+
+The dashboard's **Config** page edits the same `config.yaml` the CLI's `plan` command reads —
+regions, building-type→RLM mappings, dedupe radius, naming template, budget, RLM cache, and rate
+limiting — all from the browser instead of hand-editing YAML. Saving **overwrites the file**
+(comments in an existing hand-edited `config.yaml` won't be preserved) but keeps the exact same
+schema, so the CLI and dashboard stay interchangeable.
+
+### Map and sortable tables
+
+The **Plan** page shows every pending station on a map (green markers) alongside your already-
+synced stations (grey markers) — powered by a locally-vendored copy of Leaflet (no CDN calls);
+map tiles themselves load from OpenStreetMap directly in your browser when you view the page.
+Every table across the dashboard (buildings, plan, presets, vehicle/expand catalogs, preset
+action logs, ...) has clickable, sortable column headers.
 
 ## Requirements
 

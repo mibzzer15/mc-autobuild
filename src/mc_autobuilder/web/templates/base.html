@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>{% block title %}mc-autobuilder{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   {% if request.session.get("authenticated") %}
@@ -12,6 +13,7 @@
     <a href="/buildings">Buildings</a>
     <a href="/plan">Plan</a>
     <a href="/presets">Presets</a>
+    <a href="/config">Config</a>
     <form method="post" action="/logout" class="inline">
       <button type="submit" class="link-button">Log out</button>
     </form>
@@ -24,5 +26,7 @@
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+  <script src="/static/sortable.js"></script>
+  {% block extra_scripts %}{% endblock %}
 </body>
 </html>

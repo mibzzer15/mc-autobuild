@@ -13,7 +13,7 @@
   <h2>Preset</h2>
   {% if preset %}
     <p class="muted">
-      {{ "Max level" if preset.max_level }}
+      {% if preset.target_level %}Level {{ preset.target_level }}{% endif %}
       {% if preset.manage_service %}· {{ "Keep in service" if preset.target_enabled else "Keep out of service" }}{% endif %}
       {% if preset.hire_days %}· Recruit {{ preset.hire_days }}d{% endif %}
     </p>
@@ -25,7 +25,7 @@
     </form>
     {% endif %}
     {% if preset_log %}
-    <table>
+    <table class="sortable">
       <thead><tr><th>When</th><th>Action</th><th>Result</th></tr></thead>
       <tbody>
         {% for entry in preset_log %}
@@ -78,13 +78,13 @@
 
 <div class="card">
   <h2>Expand</h2>
-  <table>
+  <table class="sortable">
     <thead><tr><th>Level</th><th>Price</th><th></th></tr></thead>
     <tbody>
       {% for level, price in expand_prices %}
       <tr>
         <td>{{ level }}</td>
-        <td>{{ "{:,}".format(price) }} credits</td>
+        <td data-sort="{{ price }}">{{ "{:,}".format(price) }} credits</td>
         <td><a href="/buildings/{{ building_id }}/expand/confirm?level={{ level }}" class="btn">Expand</a></td>
       </tr>
       {% endfor %}
@@ -94,13 +94,13 @@
 
 <div class="card">
   <h2>Buy a vehicle</h2>
-  <table>
+  <table class="sortable">
     <thead><tr><th>Vehicle</th><th>Price</th><th></th></tr></thead>
     <tbody>
       {% for option in vehicle_options %}
       <tr>
         <td>{{ option.name }}</td>
-        <td>{{ "{:,}".format(option.price_credits) }} credits</td>
+        <td data-sort="{{ option.price_credits }}">{{ "{:,}".format(option.price_credits) }} credits</td>
         <td><a href="/buildings/{{ building_id }}/vehicles/new/confirm?vehicle_type={{ option.vehicle_type_id }}" class="btn">Buy</a></td>
       </tr>
       {% endfor %}
@@ -111,7 +111,7 @@
 <div class="card">
   <h2>Vehicles at this station</h2>
   {% if vehicles %}
-  <table>
+  <table class="sortable">
     <thead><tr><th>Vehicle</th><th>Crew</th><th></th></tr></thead>
     <tbody>
       {% for v in vehicles %}

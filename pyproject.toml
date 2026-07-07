@@ -33,4 +33,4 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mc_autobuilder = ["web/templates/*.html", "web/static/*"]
+mc_autobuilder = ["web/templates/*.html", "web/static/*", "web/static/leaflet/*", "web/static/leaflet/images/*"]

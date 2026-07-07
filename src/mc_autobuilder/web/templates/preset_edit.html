@@ -6,41 +6,45 @@
 <form method="post" action="/presets/{{ building_type }}">
   <div class="card">
     <h2>Expand</h2>
-    <label>
-      <input type="checkbox" name="max_level" {{ "checked" if preset and preset.max_level }}>
-      Always expand this station to the maximum available level
-    </label>
+    <label for="target_level">Expand to level (blank = don't manage)</label><br>
+    <input type="number" id="target_level" name="target_level" min="1" max="39"
+           value="{{ preset.target_level if preset and preset.target_level }}">
   </div>
 
   <div class="card">
     <h2>Service state</h2>
-    <label>
-      <input type="checkbox" name="manage_service" {{ "checked" if preset and preset.manage_service }}>
-      Manage this station's service state
-    </label>
-    <br>
-    <label>
-      <input type="checkbox" name="target_enabled" {{ "checked" if not preset or preset.target_enabled }}>
-      Keep it in service (unchecked = keep it out of service)
-    </label>
+    <label for="service_state">Service state</label><br>
+    <select id="service_state" name="service_state">
+      <option value="" {{ "selected" if not preset or not preset.manage_service }}>Don't manage</option>
+      <option value="on" {{ "selected" if preset and preset.manage_service and preset.target_enabled }}>Keep in service</option>
+      <option value="off" {{ "selected" if preset and preset.manage_service and not preset.target_enabled }}>Keep out of service</option>
+    </select>
   </div>
 
   <div class="card">
     <h2>Hiring</h2>
-    <label for="hire_days">Start a free recruiting phase this many days (blank = don't hire)</label><br>
-    <input type="number" id="hire_days" name="hire_days" min="1" value="{{ preset.hire_days if preset and preset.hire_days }}">
-    <p class="muted">Actual day options vary live per station — check any station's own page under "Hiring" first.</p>
+    <label for="hire_days">Free recruiting phase</label><br>
+    <select id="hire_days" name="hire_days">
+      <option value="" {{ "selected" if not preset or not preset.hire_days }}>Don't hire</option>
+      <option value="1" {{ "selected" if preset and preset.hire_days == 1 }}>1 day</option>
+      <option value="2" {{ "selected" if preset and preset.hire_days == 2 }}>2 days</option>
+      <option value="3" {{ "selected" if preset and preset.hire_days == 3 }}>3 days</option>
+      <option value="auto" disabled>Auto (premium — not yet supported, see docs/missionchief-api.md)</option>
+    </select>
+    <p class="muted">Actual day options vary live per station — this just picks which one to
+       request; if a station doesn't offer it, applying the preset will report that rather than
+       guessing at something else.</p>
   </div>
 
   <div class="card">
     <h2>Vehicles</h2>
     {% if vehicle_catalog %}
     <p class="muted">Live catalog from {{ example_building.caption }} (this type's vehicle prices/ids):</p>
-    <table>
+    <table class="sortable">
       <thead><tr><th>Vehicle</th><th>vehicle_type_id</th><th>Price</th></tr></thead>
       <tbody>
         {% for option in vehicle_catalog %}
-        <tr><td>{{ option.name }}</td><td>{{ option.vehicle_type_id }}</td><td>{{ "{:,}".format(option.price_credits) }} credits</td></tr>
+        <tr><td>{{ option.name }}</td><td>{{ option.vehicle_type_id }}</td><td data-sort="{{ option.price_credits }}">{{ "{:,}".format(option.price_credits) }} credits</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -52,31 +56,25 @@
     </p>
     {% endif %}
 
-    <p>Target count for each vehicle type — a preset application buys up to this many of each
-       (tracked against what's already been bought via this preset, not live game state).</p>
-    <table id="vehicle-rows">
-      <thead><tr><th>vehicle_type_id</th><th>Target count</th><th></th></tr></thead>
+    <p>
+      Target count for each vehicle type — a preset application buys up to this many of each
+      (tracked against what's already been bought via this preset, not live game state) — and
+      optionally assigns that many unassigned personnel as crew to each one bought.
+    </p>
+    <table>
+      <thead><tr><th>vehicle_type_id</th><th>Target count</th><th>Personnel per vehicle</th></tr></thead>
       <tbody>
-        {% for v in vehicles %}
+        {% for i in range(15) %}
+        {% set v = vehicles[i] if i < vehicles|length else none %}
         <tr>
-          <td><input type="number" name="vehicle_type_id" value="{{ v.vehicle_type_id }}"></td>
-          <td><input type="number" name="vehicle_count" value="{{ v.count }}" min="1"></td>
-          <td></td>
+          <td><input type="number" name="vehicle_type_id" value="{{ v.vehicle_type_id if v is not none }}"></td>
+          <td><input type="number" name="vehicle_count" min="1" value="{{ v.count if v is not none }}"></td>
+          <td><input type="number" name="vehicle_personnel" min="0" value="{{ v.personnel_per_vehicle if v is not none }}"></td>
         </tr>
         {% endfor %}
-        <tr>
-          <td><input type="number" name="vehicle_type_id"></td>
-          <td><input type="number" name="vehicle_count" min="1"></td>
-          <td></td>
-        </tr>
-        <tr>
-          <td><input type="number" name="vehicle_type_id"></td>
-          <td><input type="number" name="vehicle_count" min="1"></td>
-          <td></td>
-        </tr>
       </tbody>
     </table>
-    <p class="muted">Leave a row blank to skip it. Add more rows by saving and reopening this page.</p>
+    <p class="muted">Leave a row blank to skip it.</p>
   </div>
 
   <button type="submit" class="btn btn-primary">Save preset</button>

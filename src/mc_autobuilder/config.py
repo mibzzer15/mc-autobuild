@@ -6,6 +6,30 @@ from pathlib import Path
 
 import yaml
 
+# Ordered so a freshly-written config.yaml (from the web dashboard's Config editor) reads in the
+# same section order as config.example.yaml, rather than whatever order a plain dict happened to
+# accumulate keys in.
+_SECTION_ORDER = [
+    "mission_chief", "regions", "building_types", "dedupe", "naming", "budget",
+    "rlm_cache", "rate_limiting",
+]
+
+
+def load_raw_config(path: str | Path) -> dict:
+    """Loads config.yaml as a plain dict, with no validation - used by the web dashboard's
+    Config editor, which needs to work even with a partially-filled or missing file (unlike
+    Config.from_yaml, which is strict since the CLI needs a fully valid config to run `plan`)."""
+    raw_path = Path(path)
+    if not raw_path.exists():
+        return {}
+    return yaml.safe_load(raw_path.read_text()) or {}
+
+
+def save_raw_config(path: str | Path, data: dict) -> None:
+    ordered = {k: data[k] for k in _SECTION_ORDER if k in data}
+    ordered.update({k: v for k, v in data.items() if k not in ordered})
+    Path(path).write_text(yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True))
+
 
 class ConfigError(ValueError):
     """Raised when config.yaml is missing required fields or self-contradictory."""
