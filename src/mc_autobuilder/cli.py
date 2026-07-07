@@ -950,6 +950,49 @@ def set_dispatch_center(
     )
 
 
+@app.command()
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    env_file: str = ".env",
+    db_path: str = "mc_autobuilder.db",
+    plan_path: str = "plan.json",
+    config_file: str = "config.yaml",
+) -> None:
+    """Run the web dashboard (Phase 6) — a full control panel for everything the CLI can do,
+    gated behind its own DASHBOARD_PASSWORD (see .env).
+
+    Defaults to binding 127.0.0.1 only (not reachable off the server) — pass --host 0.0.0.0
+    deliberately if you want it reachable elsewhere, e.g. through an SSH tunnel or your own
+    reverse proxy with TLS. Requires the `web` extra: `pip install -e ".[web]"`.
+    """
+    try:
+        import uvicorn
+    except ImportError as exc:
+        typer.secho(
+            "The web dashboard needs its optional dependencies. Install them with "
+            "`pip install -e \".[web]\"` and try again.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    from .web_config import WebConfigError
+    from .web.app import create_app
+
+    log_path = _setup_logging("web")
+    logging.getLogger("mc_autobuilder.web").info("Starting web dashboard on %s:%s", host, port)
+
+    try:
+        web_app = create_app(env_file=env_file, db_path=db_path, plan_path=plan_path, config_file=config_file)
+    except WebConfigError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Dashboard starting at http://{host}:{port} — full log: {log_path}")
+    uvicorn.run(web_app, host=host, port=port, log_config=None)
+
+
 def main() -> None:
     app()
 

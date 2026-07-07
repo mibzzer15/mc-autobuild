@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Confirm build — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>Confirm build</h1>
+<p>Build {{ entry.name }} ({{ entry.building_type_name }})?</p>
+<p>Location: {{ "%.5f"|format(entry.latitude) }}, {{ "%.5f"|format(entry.longitude) }}</p>
+<p>
+  <strong>
+    This will spend
+    {{ "{:,}".format(entry.estimated_cost) if entry.estimated_cost is not none else "an unknown amount of" }}
+    real credits.
+  </strong>
+  The exact current price will be re-checked live immediately before submitting.
+</p>
+<form method="post" action="/plan/build">
+  <input type="hidden" name="poi_id" value="{{ entry.poi_id }}">
+  <button type="submit" class="btn btn-primary">Yes, build this</button>
+  <a href="/plan" class="btn">Cancel</a>
+</form>
+{% endblock %}

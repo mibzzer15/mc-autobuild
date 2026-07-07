@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="card">
+  <div class="muted">Live credit balance</div>
+  {% if balance is not none %}
+    <div class="stat">{{ "{:,}".format(balance) }}</div>
+  {% else %}
+    <div class="flash flash-error">Could not read live balance: {{ balance_error }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="muted">Cached buildings ({{ total_buildings }} total, from last sync)</div>
+  <table>
+    <thead><tr><th>Type</th><th>Count</th></tr></thead>
+    <tbody>
+      {% for name, count in counts %}
+      <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/sync">
+    <button type="submit" class="btn">Sync now</button>
+  </form>
+</div>
+
+<p><a href="/buildings" class="btn">View buildings</a> <a href="/plan" class="btn">View plan</a></p>
+{% endblock %}

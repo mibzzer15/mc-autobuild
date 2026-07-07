@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Crew — {{ vehicle.caption }} — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>{{ vehicle.caption }}</h1>
+<p class="muted">Vehicle {{ vehicle.id }} · {{ vehicle.assigned_personnel_count }} assigned crew</p>
+<p class="muted">
+  Toggles a person's permanent crew-roster binding to this vehicle — free, and independent of
+  their live mission-dispatch status shown below (see docs/missionchief-api.md). "Currently
+  assigned to" is this station's roster, which names a vehicle by caption only — if this station
+  has more than one vehicle with the same name, it can't distinguish which one, so the button
+  below always just toggles this specific vehicle's binding regardless of the label shown.
+</p>
+
+<table>
+  <thead><tr><th>Name</th><th>Currently assigned to</th><th></th></tr></thead>
+  <tbody>
+    {% for person in roster %}
+    <tr>
+      <td>{{ person.name }}</td>
+      <td>{{ person.assigned_to or "—" }}</td>
+      <td>
+        <form method="post" action="/vehicles/{{ vehicle.id }}/zuweisungDo/{{ person.personal_id }}" class="inline">
+          <button type="submit" class="btn">Toggle binding to this vehicle</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p><a href="/buildings/{{ vehicle.building_id }}" class="btn">Back to station</a></p>
+{% endblock %}

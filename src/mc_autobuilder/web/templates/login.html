@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Log in — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>mc-autobuilder</h1>
+{% if error %}
+  <div class="flash flash-error">Incorrect password.</div>
+{% endif %}
+<form method="post" action="/login" class="stack">
+  <label for="password">Dashboard password</label>
+  <input type="password" id="password" name="password" autofocus required>
+  <button type="submit" class="btn btn-primary">Log in</button>
+</form>
+{% endblock %}

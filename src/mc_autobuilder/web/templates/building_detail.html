@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Building {{ building_id }} — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>{{ cached.caption if cached else "Building " ~ building_id }}</h1>
+<p class="muted">
+  {{ BUILDING_TYPES.get(detail.building_type, "Type " ~ detail.building_type) }} ·
+  Level {{ detail.level }} ·
+  {{ "In service" if detail.enabled else "Out of service" }} ·
+  Dispatch center: {{ detail.leitstelle_building_id or "none" }}
+</p>
+
+<div class="card">
+  <h2>Service state</h2>
+  <form method="post" action="/buildings/{{ building_id }}/toggle-service">
+    <button type="submit" class="btn">
+      {{ "Take out of service" if detail.enabled else "Put back in service" }}
+    </button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Dispatch center</h2>
+  <form method="post" action="/buildings/{{ building_id }}/dispatch" class="stack">
+    <label for="leitstelle_id">Dispatch center building id (0 to unassign)</label>
+    <input type="number" id="leitstelle_id" name="leitstelle_id" value="{{ detail.leitstelle_building_id or 0 }}" required>
+    <button type="submit" class="btn">Reassign dispatch center</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Hiring</h2>
+  <p class="muted">hiring_phase: {{ detail.hiring_phase }}. Free — starts a timed recruiting phase, doesn't add personnel immediately.</p>
+  {% if hire_options %}
+  {% for days in hire_options %}
+  <form method="post" action="/buildings/{{ building_id }}/hire" class="inline">
+    <input type="hidden" name="days" value="{{ days }}">
+    <button type="submit" class="btn">Recruit {{ days }} day{{ "s" if days != 1 else "" }}</button>
+  </form>
+  {% endfor %}
+  {% else %}
+  <p class="muted">No hiring options available right now (a recruiting phase may already be active).</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Expand</h2>
+  <table>
+    <thead><tr><th>Level</th><th>Price</th><th></th></tr></thead>
+    <tbody>
+      {% for level, price in expand_prices %}
+      <tr>
+        <td>{{ level }}</td>
+        <td>{{ "{:,}".format(price) }} credits</td>
+        <td><a href="/buildings/{{ building_id }}/expand/confirm?level={{ level }}" class="btn">Expand</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Buy a vehicle</h2>
+  <table>
+    <thead><tr><th>Vehicle</th><th>Price</th><th></th></tr></thead>
+    <tbody>
+      {% for option in vehicle_options %}
+      <tr>
+        <td>{{ option.name }}</td>
+        <td>{{ "{:,}".format(option.price_credits) }} credits</td>
+        <td><a href="/buildings/{{ building_id }}/vehicles/new/confirm?vehicle_type={{ option.vehicle_type_id }}" class="btn">Buy</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Vehicles at this station</h2>
+  {% if vehicles %}
+  <table>
+    <thead><tr><th>Vehicle</th><th>Crew</th><th></th></tr></thead>
+    <tbody>
+      {% for v in vehicles %}
+      <tr>
+        <td>{{ v.caption }}</td>
+        <td>{{ v.assigned_personnel_count }}</td>
+        <td><a href="/vehicles/{{ v.id }}/zuweisung" class="btn">Manage crew</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No vehicles at this station yet.</p>
+  {% endif %}
+</div>
+
+<p><a href="/buildings" class="btn">Back to buildings</a></p>
+{% endblock %}

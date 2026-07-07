@@ -35,7 +35,7 @@ This is being built in phases; only what's actually implemented is documented be
 | 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
 | 4 | Build execution (one station, or a whole plan) | **Done** — `mc-autobuilder build` / `run` |
 | 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | **Implemented, not yet tested** — `expand`, `toggle-service`, `buy-vehicle`, `hire`, `assign-personnel`, `set-dispatch-center` are all confirmed against real HAR captures and unit-tested, but none have been exercised against a real account yet (unlike Phases 1-4, which were verified live) |
-| 6 | Web dashboard | **In progress** |
+| 6 | Web dashboard | **Done (MVP)** — `mc-autobuilder serve`; this is how Phase 5 is meant to get tested |
 
 Phase 5 commands, all dry-run by default with `--execute` + confirmation before anything changes
 (same safety pattern as `build`/`run`):
@@ -52,6 +52,30 @@ Phase 5 commands, all dry-run by default with `--execute` + confirmation before 
   station's dispatch center (`--leitstelle-id 0` to unassign).
 
 Not yet implemented: `hire_with_education` (paid/trained hiring), equipment purchase.
+
+## Web dashboard
+
+`mc-autobuilder serve` runs a full control panel covering everything above — view synced
+buildings and the current plan, and trigger every write action from a browser instead of the
+CLI. It's gated behind its own password (separate from your MissionChief login, since this
+dashboard can spend real credits):
+
+```bash
+pip install -e ".[web]"
+echo "DASHBOARD_PASSWORD=$(openssl rand -hex 16)" >> .env
+mc-autobuilder serve --host 127.0.0.1 --port 8000
+```
+
+- Binds `127.0.0.1` by default — not reachable off the server unless you pass `--host 0.0.0.0`
+  deliberately (e.g. behind your own reverse proxy with TLS) or use an SSH tunnel
+  (`ssh -L 8000:localhost:8000 you@server`).
+- Safety rules match the CLI exactly: money-spending actions (expand, buy vehicle) are a genuine
+  two-step preview → confirm flow, never a single click; free actions (toggle service, hire,
+  assign personnel, set dispatch center) are a single deliberate form submit whose button states
+  the exact consequence. Every action verifies success the same way its CLI equivalent does.
+- Add `DASHBOARD_SECRET_KEY=<a long random value>` to `.env` if you want logins to survive a
+  server restart (otherwise a fresh key is generated each time the server starts, which just logs
+  everyone out — not a security issue).
 
 ## Requirements
 

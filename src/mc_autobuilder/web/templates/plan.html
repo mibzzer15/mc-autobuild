@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Plan — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>Plan</h1>
+
+{% if plan_missing %}
+<p>No plan.json found. Generate one with <code>mc-autobuilder plan</code> on the server first.</p>
+{% else %}
+<p class="muted">
+  {{ entries|length }} station(s) to build
+  {% if already_done %}({{ already_done }} already done, skipping){% endif %}
+  · Total estimated cost: {{ "{:,}".format(total_estimated_cost) }} credits
+</p>
+
+<table>
+  <thead><tr><th>Name</th><th>Type</th><th>Estimated cost</th><th></th></tr></thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.name }}</td>
+      <td>{{ e.building_type_name }}</td>
+      <td>{{ "{:,}".format(e.estimated_cost) if e.estimated_cost is not none else "unknown" }}</td>
+      <td><a href="/plan/build/confirm?poi_id={{ e.poi_id }}" class="btn">Build</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

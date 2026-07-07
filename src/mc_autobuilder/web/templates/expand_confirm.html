@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Confirm expand — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>Confirm expand</h1>
+<p>Expand building {{ building_id }} to level {{ level }}?</p>
+<p><strong>This will spend {{ "{:,}".format(price) }} real credits.</strong> The exact price will be
+   re-checked live immediately before submitting.</p>
+<form method="post" action="/buildings/{{ building_id }}/expand">
+  <input type="hidden" name="level" value="{{ level }}">
+  <button type="submit" class="btn btn-primary">Yes, spend {{ "{:,}".format(price) }} credits</button>
+  <a href="/buildings/{{ building_id }}" class="btn">Cancel</a>
+</form>
+{% endblock %}

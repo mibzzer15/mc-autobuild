@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Error — mc-autobuilder{% endblock %}
+{% block content %}
+<div class="flash flash-error">{{ message }}</div>
+<p><a href="{{ back_url }}" class="btn">Back</a></p>
+{% endblock %}

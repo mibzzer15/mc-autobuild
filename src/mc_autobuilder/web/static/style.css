@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1rem 3rem;
+  line-height: 1.5;
+}
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid #8884;
+  margin-bottom: 1.5rem;
+}
+
+.topnav .brand {
+  font-weight: 700;
+  margin-right: auto;
+}
+
+a {
+  color: inherit;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.flash {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+}
+
+.flash-success {
+  background: #1a7f3733;
+  border: 1px solid #1a7f37;
+}
+
+.flash-error {
+  background: #cf222e33;
+  border: 1px solid #cf222e;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #8883;
+}
+
+.btn {
+  display: inline-block;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid #8886;
+  background: #8881;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-decoration: none;
+}
+
+.btn-primary {
+  border-color: #1a7f37;
+  background: #1a7f3722;
+}
+
+.btn-danger {
+  border-color: #cf222e;
+  background: #cf222e22;
+}
+
+.inline {
+  display: inline;
+}
+
+.card {
+  border: 1px solid #8884;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.muted {
+  opacity: 0.7;
+}
+
+.stat {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+form.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 320px;
+}
+
+input[type="text"], input[type="password"], input[type="number"] {
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #8886;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}

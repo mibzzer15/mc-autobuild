@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}mc-autobuilder{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  {% if request.session.get("authenticated") %}
+  <nav class="topnav">
+    <a href="/" class="brand">mc-autobuilder</a>
+    <a href="/buildings">Buildings</a>
+    <a href="/plan">Plan</a>
+    <form method="post" action="/logout" class="inline">
+      <button type="submit" class="link-button">Log out</button>
+    </form>
+  </nav>
+  {% endif %}
+
+  <main>
+    {% if flash %}
+      <div class="flash flash-{{ flash_level|default('success') }}">{{ flash }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
