@@ -837,12 +837,18 @@ def create_app(
         # Breakdown of where candidates went, so an empty/short plan is self-explaining rather
         # than a mystery: how many RLM candidates each region/poi_type returned, and how many
         # were dropped as duplicates / over a per-type cap / over budget.
+        budget_skips = data.get("skipped_budget", [])
+        budget_costs = [s["estimated_cost"] for s in budget_skips if s.get("estimated_cost") is not None]
         diagnostics = {
             "total_candidates": data.get("total_candidates"),
             "candidate_breakdown": data.get("candidate_breakdown", []),
             "skipped_duplicates": len(data.get("skipped_duplicates", [])),
             "skipped_capped": len(data.get("skipped_capped", [])),
-            "skipped_budget": len(data.get("skipped_budget", [])),
+            "skipped_budget": len(budget_skips),
+            # For the "everything's over budget" hint: the configured cap and the cheapest
+            # candidate that got rejected, so the user knows what to raise the budget to.
+            "max_credits_per_run": (data.get("budget") or {}).get("max_credits_per_run"),
+            "cheapest_over_budget": min(budget_costs) if budget_costs else None,
         }
         return templates.TemplateResponse(
             request,

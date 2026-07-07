@@ -787,6 +787,47 @@ dedupe:
     assert "1 already-built (duplicate)" in page  # but it deduped away
 
 
+def test_plan_page_diagnostics_explain_all_over_budget(client, monkeypatch, tmp_path):
+    _login(client)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+mission_chief:
+  game_world: "US"
+regions:
+  - name: "Pricey Region"
+    bbox: {north: 1.0, south: 0.0, east: 1.0, west: 0.0}
+building_types:
+  poi_fire_station:
+    building_type: 0
+budget:
+  max_credits_per_run: 500000
+"""
+    )
+    plan_path = tmp_path / "plan.json"
+    client.app.state.config_file = str(config_path)
+    client.app.state.plan_path = str(plan_path)
+
+    # A single station that costs more than the whole per-run budget.
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_prices", lambda self: {0: 2_000_000}
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.RLMClient.get_pois",
+        lambda self, poi_type, bbox: [{"id": 1, "name": "Expensive FS", "lat": 0.5, "lng": 0.5}],
+    )
+
+    client.post("/plan/generate", follow_redirects=False)
+    assert _wait_for(lambda: plan_path.exists() and plan_path.read_text())
+
+    page = client.get("/plan").text
+    assert "0 station(s) to build" in page
+    assert "1 over budget" in page
+    assert "rejected by your budget cap" in page
+    assert "500,000" in page  # the configured cap
+    assert "2,000,000" in page  # the cheapest over-budget candidate cost
+
+
 def test_plan_generate_rejects_double_trigger_while_in_progress(client, tmp_path):
     _login(client)
     client.app.state.config_file = str(tmp_path / "config.yaml")  # missing - would error anyway

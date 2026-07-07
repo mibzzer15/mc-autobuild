@@ -87,6 +87,7 @@ class SkippedEntry:
     poi_name: str
     building_type: int
     reason: str
+    estimated_cost: int | None = None
 
 
 @dataclass
@@ -161,6 +162,7 @@ def build_plan(
                     poi_name=poi_name,
                     building_type=building_type,
                     reason="would exceed max_credits_per_run",
+                    estimated_cost=cost,
                 )
             )
             continue

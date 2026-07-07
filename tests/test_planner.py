@@ -122,6 +122,8 @@ def test_build_plan_respects_budget_and_computes_total_cost():
     assert len(plan.to_build) == 1
     assert plan.total_estimated_cost == 1_000_000
     assert len(plan.skipped_budget) == 1
+    # The skipped entry records its cost so the dashboard can tell the user what to raise the cap to.
+    assert plan.skipped_budget[0].estimated_cost == 1_000_000
 
 
 def test_build_plan_applies_naming_template():

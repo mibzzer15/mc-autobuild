@@ -67,6 +67,18 @@
     {{ diagnostics.skipped_budget }} over budget.
   </p>
 
+  {% if diagnostics.skipped_budget > 0 and entries|length == 0 %}
+  <p class="flash flash-error">
+    Every candidate was rejected by your budget cap.
+    {% if diagnostics.max_credits_per_run is not none %}
+    <strong>max_credits_per_run</strong> is {{ "{:,}".format(diagnostics.max_credits_per_run) }} credits{% endif %}{% if diagnostics.cheapest_over_budget is not none %},
+    but the cheapest candidate costs {{ "{:,}".format(diagnostics.cheapest_over_budget) }} credits{% endif %}.
+    MissionChief prices escalate with how many of a type you already own, so a single new station
+    can cost more than a small per-run cap. Raise (or clear) <strong>max_credits_per_run</strong>
+    in <a href="/config">Config</a> and regenerate.
+  </p>
+  {% endif %}
+
   {% if diagnostics.candidate_breakdown %}
   <table class="sortable">
     <thead><tr><th>Region</th><th>poi_type</th><th>RLM candidates</th></tr></thead>
