@@ -34,8 +34,8 @@ This is being built in phases; only what's actually implemented is documented be
 | 1 | Auth + read-only building sync | **Done** — `mc-autobuilder login` / `sync` |
 | 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
 | 4 | Build execution (one station, or a whole plan) | **Done** — `mc-autobuilder build` / `run` |
-| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | **Done** — `expand`, `toggle-service`, `buy-vehicle`, `hire`, `assign-personnel`, `set-dispatch-center` |
-| 6 | Web dashboard | Not started |
+| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | **Implemented, not yet tested** — `expand`, `toggle-service`, `buy-vehicle`, `hire`, `assign-personnel`, `set-dispatch-center` are all confirmed against real HAR captures and unit-tested, but none have been exercised against a real account yet (unlike Phases 1-4, which were verified live) |
+| 6 | Web dashboard | **In progress** |
 
 Phase 5 commands, all dry-run by default with `--execute` + confirmation before anything changes
 (same safety pattern as `build`/`run`):
