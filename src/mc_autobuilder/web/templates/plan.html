@@ -9,8 +9,26 @@
 {% block content %}
 <h1>Plan</h1>
 
+<div class="card">
+  <h2>Generate plan</h2>
+  <p class="muted">
+    Fetches candidate stations from RLM for every region in <a href="/config">Config</a>, dedupes
+    against your synced buildings, and rewrites <code>plan.json</code> based on the current config
+    (regions, building-type mappings, dedupe radius, naming, budget). Runs in the background —
+    RLM fetches across several regions plus a live price check can take a while, especially on a
+    cold cache.
+  </p>
+  {% if plan_generation_in_progress %}
+  <p><strong>Generating now in the background — refresh this page to see the result.</strong></p>
+  {% else %}
+  <form method="post" action="/plan/generate">
+    <button type="submit" class="btn btn-primary">Generate plan</button>
+  </form>
+  {% endif %}
+</div>
+
 {% if plan_missing %}
-<p>No plan.json found. Generate one with <code>mc-autobuilder plan</code> on the server first.</p>
+<p>No plan.json found yet — generate one above, or with <code>mc-autobuilder plan</code> on the server.</p>
 {% else %}
 <p class="muted">
   {{ entries|length }} station(s) to build

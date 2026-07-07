@@ -27,7 +27,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from ..auth import AuthConfig, SessionExpiredError, build_session, load_config, update_env_file
-from ..config import load_raw_config, save_raw_config
+from ..config import Config, ConfigError, load_raw_config, save_raw_config
 from ..constants import BUILDING_TYPES
 from ..mc_client import MissionChiefClient, summarize_html_for_log
 from ..models import (
@@ -42,7 +42,9 @@ from ..models import (
     save_preset,
     upsert_buildings,
 )
+from ..plan_generation import generate_plan
 from ..presets import apply_preset, parse_vehicles_json
+from ..rlm_client import RLM_BASE_URL, RLMClient, RLMClientConfig
 from ..web_config import WebConfig
 
 logger = logging.getLogger("mc_autobuilder.web")
@@ -113,6 +115,7 @@ def create_app(
     # building_ids with a preset application currently running in a background thread - guards
     # against double-triggering (e.g. double-clicking "Apply preset") while one's already going.
     app.state.presets_in_progress = set()
+    app.state.plan_generation_in_progress = False
 
     @app.exception_handler(NotAuthenticated)
     async def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
@@ -213,6 +216,54 @@ def create_app(
             target=_run_preset_in_background, args=(client, building_id, preset), daemon=True
         ).start()
         return "started", "Preset application started in the background — refresh this page to see progress."
+
+    def _run_plan_generation_in_background(
+        mc_client: MissionChiefClient, config: Config, existing_buildings: list[dict]
+    ) -> None:
+        try:
+            rlm_client = RLMClient(
+                RLMClientConfig(
+                    base_url=RLM_BASE_URL,
+                    cache_dir=Path(config.rlm_cache_dir),
+                    cache_ttl_hours=config.rlm_cache_ttl_hours,
+                    min_delay_seconds=config.rate_limit_min_delay,
+                    max_delay_seconds=config.rate_limit_max_delay,
+                )
+            )
+            plan_output = generate_plan(config, mc_client, rlm_client, existing_buildings)
+            Path(app.state.plan_path).write_text(json.dumps(plan_output, indent=2))
+            logger.info("Plan generation complete: %d station(s) to build", len(plan_output["to_build"]))
+        except Exception:
+            logger.exception("Plan generation failed")
+        finally:
+            app.state.plan_generation_in_progress = False
+
+    def start_plan_generation(request: Request) -> tuple[str, str]:
+        """Kicks off generate_plan in a background thread - RLM fetches across several regions
+        plus the live price fetch can take a while, especially on a cold cache, so this can't
+        just block the request the way a single quick action would. Returns (status, detail)."""
+        if request.app.state.plan_generation_in_progress:
+            return "already_running", "Plan generation is already in progress."
+        try:
+            config = Config.from_yaml(request.app.state.config_file)
+        except ConfigError as exc:
+            return "error", f"Config error: {exc}"
+        try:
+            client = get_client(request)
+        except SessionExpiredError as exc:
+            return "error", f"Authentication failed: {exc}"
+
+        with db_session(request) as db:
+            existing_buildings = [
+                {"id": b.id, "building_type": b.building_type, "latitude": b.latitude, "longitude": b.longitude}
+                for b in db.query(Building).all()
+            ]
+
+        request.app.state.plan_generation_in_progress = True
+        threading.Thread(
+            target=_run_plan_generation_in_background, args=(client, config, existing_buildings), daemon=True
+        ).start()
+        return "started", "Plan generation started in the background — refresh this page in a bit to see the result."
 
     # ---------------------------------------------------------------- auth
 
@@ -700,7 +751,13 @@ def create_app(
         plan_file = Path(request.app.state.plan_path)
         if not plan_file.exists():
             return templates.TemplateResponse(
-                request, "plan.html", {"entries": [], "plan_missing": True, **flash_context(request)}
+                request,
+                "plan.html",
+                {
+                    "entries": [], "plan_missing": True,
+                    "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
+                    **flash_context(request),
+                },
             )
         data = json.loads(plan_file.read_text())
         entries = data.get("to_build", [])
@@ -734,9 +791,15 @@ def create_app(
                 "total_estimated_cost": sum(e.get("estimated_cost") or 0 for e in pending),
                 "plan_missing": False,
                 "map_data_json": _safe_json_for_script(map_data),
+                "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
                 **flash_context(request),
             },
         )
+
+    @app.post("/plan/generate")
+    def plan_generate_route(request: Request, _: None = Depends(require_login)):
+        status, message = start_plan_generation(request)
+        return flash_redirect("/plan", message, "success" if status == "started" else "error")
 
     @app.get("/plan/build/confirm", response_class=HTMLResponse)
     def plan_build_confirm(request: Request, poi_id: int, _: None = Depends(require_login)):

@@ -9,7 +9,6 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-import requests
 import typer
 
 from .auth import AuthConfig, SessionExpiredError, build_session, interactive_playwright_login
@@ -25,9 +24,9 @@ from .models import (
     record_completed_action,
     upsert_buildings,
 )
-from .planner import Plan, build_plan
+from .plan_generation import generate_plan
 from .presets import apply_preset as apply_preset_lib
-from .rlm_client import RLM_BASE_URL, BoundingBox, RLMClient, RLMClientConfig, geocode_city
+from .rlm_client import RLM_BASE_URL, RLMClient, RLMClientConfig
 
 app = typer.Typer(add_completion=False, help="Automate MissionChief station management.")
 
@@ -189,18 +188,6 @@ def _apply_preset_if_configured(logger, session_factory, mc_client: MissionChief
             logger.info("Preset action for building %s: %s", building_id, message)
 
 
-def _resolve_region_bbox(region, geocode_session: requests.Session) -> tuple[BoundingBox, str]:
-    """Returns (bbox, city_label_for_naming_template)."""
-    if region.bbox is not None:
-        return BoundingBox(**region.bbox), region.name
-    if region.city is not None:
-        center = geocode_city(region.city, session=geocode_session)
-        center_lat = (center.north + center.south) / 2
-        center_lng = (center.east + center.west) / 2
-        return BoundingBox.from_center_radius(center_lat, center_lng, region.radius_km), region.city
-    return BoundingBox.from_center_radius(region.center["lat"], region.center["lng"], region.radius_km), region.name
-
-
 @app.command()
 def plan(
     env_file: str = ".env",
@@ -257,98 +244,37 @@ def plan(
             max_delay_seconds=config.rate_limit_max_delay,
         )
     )
-    geocode_session = requests.Session()
 
     logger.info("Fetching current building prices from %s ...", auth_config.base_url)
     try:
-        prices = mc_client.get_building_prices()
+        plan_output = generate_plan(config, mc_client, rlm_client, existing_buildings)
     except SessionExpiredError as exc:
         typer.secho(f"Authentication failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
-    per_type_caps = {bt.building_type: bt.max_per_run for bt in config.building_types if bt.max_per_run}
-
-    all_candidates = []
-    for region in config.regions:
-        bbox, city_label = _resolve_region_bbox(region, geocode_session)
-        logger.info("Region %s resolved to bbox %s", region.name, bbox)
-        for bt_config in config.building_types:
-            pois = rlm_client.get_pois(bt_config.poi_type, bbox)
-            logger.info(
-                "Region %s / %s: %d candidate POIs", region.name, bt_config.poi_type, len(pois)
-            )
-            for poi in pois:
-                all_candidates.append(
-                    {
-                        **poi,
-                        "building_type": bt_config.building_type,
-                        "building_type_name": BUILDING_TYPES.get(bt_config.building_type, ""),
-                        "_region": region.name,
-                        "_city_label": city_label,
-                    }
-                )
-
-    # Plan region-by-region so the naming template's {city} reflects each candidate's own region,
-    # then merge into one overall plan for reporting/budget purposes.
-    merged = Plan()
-    built_so_far_cost = 0
-    for region in config.regions:
-        region_candidates = [c for c in all_candidates if c["_region"] == region.name]
-        if not region_candidates:
-            continue
-        city_label = region_candidates[0]["_city_label"]
-        region_plan = build_plan(
-            region_candidates,
-            existing_buildings,
-            dedupe_radius_m=config.dedupe_radius_m,
-            naming_template=config.naming_template,
-            city=city_label,
-            per_type_caps=per_type_caps,
-            prices=prices,
-            max_total_cost=(
-                config.max_credits_per_run - built_so_far_cost
-                if config.max_credits_per_run is not None
-                else None
-            ),
-        )
-        merged.to_build.extend(region_plan.to_build)
-        merged.skipped_duplicates.extend(region_plan.skipped_duplicates)
-        merged.skipped_capped.extend(region_plan.skipped_capped)
-        merged.skipped_budget.extend(region_plan.skipped_budget)
-        merged.total_estimated_cost += region_plan.total_estimated_cost
-        built_so_far_cost += region_plan.total_estimated_cost
-
-    plan_output = {
-        "generated_at": datetime.now().isoformat(),
-        "regions": [r.name for r in config.regions],
-        **merged.to_dict(),
-        "budget": {
-            "max_credits_per_run": config.max_credits_per_run,
-            "credit_reserve": config.credit_reserve,
-        },
-    }
     Path(plan_path).write_text(json.dumps(plan_output, indent=2))
 
+    to_build = plan_output["to_build"]
     logger.info(
         "Plan complete: %d to build, %d duplicates skipped, %d capped, %d over budget",
-        len(merged.to_build),
-        len(merged.skipped_duplicates),
-        len(merged.skipped_capped),
-        len(merged.skipped_budget),
+        len(to_build),
+        len(plan_output["skipped_duplicates"]),
+        len(plan_output["skipped_capped"]),
+        len(plan_output["skipped_budget"]),
     )
 
     typer.echo("")
-    typer.secho(f"Plan: {len(merged.to_build)} station(s) to build", bold=True)
-    for b in merged.to_build:
-        cost_str = f"{b.estimated_cost:,} credits" if b.estimated_cost is not None else "price unknown"
-        typer.echo(f"  + {b.name!r} ({b.building_type_name}) @ {b.latitude:.5f},{b.longitude:.5f} — {cost_str}")
+    typer.secho(f"Plan: {len(to_build)} station(s) to build", bold=True)
+    for b in to_build:
+        cost_str = f"{b['estimated_cost']:,} credits" if b.get("estimated_cost") is not None else "price unknown"
+        typer.echo(f"  + {b['name']!r} ({b['building_type_name']}) @ {b['latitude']:.5f},{b['longitude']:.5f} — {cost_str}")
 
     typer.echo("")
-    typer.echo(f"Skipped as duplicates: {len(merged.skipped_duplicates)}")
-    typer.echo(f"Skipped (per-type cap reached): {len(merged.skipped_capped)}")
-    typer.echo(f"Skipped (over budget): {len(merged.skipped_budget)}")
+    typer.echo(f"Skipped as duplicates: {len(plan_output['skipped_duplicates'])}")
+    typer.echo(f"Skipped (per-type cap reached): {len(plan_output['skipped_capped'])}")
+    typer.echo(f"Skipped (over budget): {len(plan_output['skipped_budget'])}")
     typer.echo("")
-    typer.secho(f"Total estimated cost: {merged.total_estimated_cost:,} credits", bold=True)
+    typer.secho(f"Total estimated cost: {plan_output['total_estimated_cost']:,} credits", bold=True)
     if config.max_credits_per_run is not None:
         typer.echo(f"Run budget: {config.max_credits_per_run:,} credits")
     typer.echo(

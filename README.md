@@ -157,6 +157,16 @@ username, password, session cookie, server base URL) — these actually live in 
 echoed back once set (leave them blank to keep the current value); saving them takes effect
 immediately, no server restart needed.
 
+### Generating a plan from the dashboard
+
+The **Plan** page has a "Generate plan" button — it re-reads whatever's currently in
+`config.yaml` (edit it on the Config page, or by hand) and rewrites `plan.json`, exactly like
+running `mc-autobuilder plan` on the server: fetches RLM candidates for every configured region,
+dedupes against your synced buildings, and applies your naming template/budget/caps. Runs in the
+background (RLM fetches across several regions plus a live price check can take a while,
+especially on a cold cache) — refresh the page to see the result once it finishes. The CLI and
+dashboard share the exact same plan-generation code, so results are identical either way.
+
 ### Map and sortable tables
 
 The **Plan** page shows every pending station on a map (green markers) alongside your already-

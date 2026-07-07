@@ -570,3 +570,60 @@ def test_config_save_with_blank_password_keeps_existing_value(client, tmp_path):
     from mc_autobuilder.auth import load_config
 
     assert load_config(env_path)["MC_PASSWORD"] == "original"
+
+
+def test_plan_generate_writes_plan_json_from_config(client, monkeypatch, tmp_path):
+    _login(client)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+mission_chief:
+  game_world: "US"
+regions:
+  - name: "Test Region"
+    bbox: {north: 1.0, south: 0.0, east: 1.0, west: 0.0}
+building_types:
+  poi_fire_station:
+    building_type: 0
+"""
+    )
+    plan_path = tmp_path / "plan.json"
+    client.app.state.config_file = str(config_path)
+    client.app.state.plan_path = str(plan_path)
+
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_prices", lambda self: {0: 100_000}
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.RLMClient.get_pois",
+        lambda self, poi_type, bbox: [{"id": 1, "name": "Test Fire POI", "lat": 0.5, "lng": 0.5}],
+    )
+
+    resp = client.post("/plan/generate", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "started in the background" in unquote(resp.headers["location"])
+
+    assert _wait_for(lambda: plan_path.exists() and plan_path.read_text())
+    data = json.loads(plan_path.read_text())
+    assert len(data["to_build"]) == 1
+    assert data["to_build"][0]["poi_name"] == "Test Fire POI"
+    assert data["to_build"][0]["estimated_cost"] == 100_000
+
+
+def test_plan_generate_rejects_double_trigger_while_in_progress(client, tmp_path):
+    _login(client)
+    client.app.state.config_file = str(tmp_path / "config.yaml")  # missing - would error anyway
+    client.app.state.plan_generation_in_progress = True
+    try:
+        resp = client.post("/plan/generate", follow_redirects=False)
+        assert "already in progress" in unquote(resp.headers["location"])
+    finally:
+        client.app.state.plan_generation_in_progress = False
+
+
+def test_plan_generate_reports_config_error_cleanly(client, tmp_path):
+    _login(client)
+    client.app.state.config_file = str(tmp_path / "does-not-exist.yaml")
+
+    resp = client.post("/plan/generate", follow_redirects=False)
+    assert "Config error" in unquote(resp.headers["location"])
