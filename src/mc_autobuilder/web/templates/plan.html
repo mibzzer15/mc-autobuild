@@ -21,6 +21,12 @@
   {% if plan_generation_in_progress %}
   <p><strong>Generating now in the background — refresh this page to see the result.</strong></p>
   {% else %}
+  {% if plan_generation_result %}
+  <p class="flash flash-{{ 'success' if plan_generation_result.status == 'success' else 'error' }}">
+    {{ plan_generation_result.message }}
+    <span class="muted">({{ plan_generation_result.finished_at }})</span>
+  </p>
+  {% endif %}
   <form method="post" action="/plan/generate">
     <button type="submit" class="btn btn-primary">Generate plan</button>
   </form>

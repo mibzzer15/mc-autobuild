@@ -652,6 +652,53 @@ building_types:
     assert data["to_build"][0]["poi_name"] == "Test Fire POI"
     assert data["to_build"][0]["estimated_cost"] == 100_000
 
+    # The Plan page should report the run's outcome, not just silently show the new plan.
+    assert _wait_for(lambda: client.app.state.plan_generation_result is not None)
+    assert client.app.state.plan_generation_result["status"] == "success"
+    page = client.get("/plan").text
+    assert "1 station(s) to build" in page
+
+
+def test_plan_generate_surfaces_background_failure_instead_of_silent_nothing(client, monkeypatch, tmp_path):
+    _login(client)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+mission_chief:
+  game_world: "US"
+regions:
+  - name: "Test Region"
+    bbox: {north: 1.0, south: 0.0, east: 1.0, west: 0.0}
+building_types:
+  poi_fire_station:
+    building_type: 0
+"""
+    )
+    plan_path = tmp_path / "plan.json"
+    client.app.state.config_file = str(config_path)
+    client.app.state.plan_path = str(plan_path)
+
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_prices", lambda self: {0: 100_000}
+    )
+
+    def _boom(self, poi_type, bbox):
+        raise RuntimeError("RLM unreachable")
+
+    monkeypatch.setattr("mc_autobuilder.web.app.RLMClient.get_pois", _boom)
+
+    resp = client.post("/plan/generate", follow_redirects=False)
+    assert resp.status_code == 303
+
+    # Previously this failure was swallowed into the server log and the user saw nothing change.
+    assert _wait_for(lambda: client.app.state.plan_generation_result is not None)
+    assert client.app.state.plan_generation_result["status"] == "error"
+    assert not plan_path.exists()  # a failed run must not leave a stale/partial plan.json
+
+    page = client.get("/plan").text
+    assert "Plan generation failed" in page
+    assert "RLM unreachable" in page
+
 
 def test_plan_generate_rejects_double_trigger_while_in_progress(client, tmp_path):
     _login(client)

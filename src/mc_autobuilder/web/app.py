@@ -17,6 +17,7 @@ import secrets
 import threading
 from collections import Counter
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -120,6 +121,10 @@ def create_app(
     # against double-triggering (e.g. double-clicking "Apply preset") while one's already going.
     app.state.presets_in_progress = set()
     app.state.plan_generation_in_progress = False
+    # Outcome of the most recent background plan-generation run, so the Plan page can report
+    # success/failure - otherwise a run that raised (session expired, RLM error, ...) just logs
+    # to the server and looks to the user like "nothing happened". None until the first run.
+    app.state.plan_generation_result = None
 
     @app.exception_handler(NotAuthenticated)
     async def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
@@ -236,9 +241,20 @@ def create_app(
             )
             plan_output = generate_plan(config, mc_client, rlm_client, existing_buildings)
             Path(app.state.plan_path).write_text(json.dumps(plan_output, indent=2))
-            logger.info("Plan generation complete: %d station(s) to build", len(plan_output["to_build"]))
-        except Exception:
+            count = len(plan_output["to_build"])
+            logger.info("Plan generation complete: %d station(s) to build", count)
+            app.state.plan_generation_result = {
+                "status": "success",
+                "message": f"Plan generated: {count} station(s) to build.",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        except Exception as exc:
             logger.exception("Plan generation failed")
+            app.state.plan_generation_result = {
+                "status": "error",
+                "message": f"Plan generation failed: {type(exc).__name__}: {exc}",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
         finally:
             app.state.plan_generation_in_progress = False
 
@@ -264,6 +280,7 @@ def create_app(
             ]
 
         request.app.state.plan_generation_in_progress = True
+        request.app.state.plan_generation_result = None  # clear the previous run's outcome
         threading.Thread(
             target=_run_plan_generation_in_background, args=(client, config, existing_buildings), daemon=True
         ).start()
@@ -790,6 +807,7 @@ def create_app(
                 {
                     "entries": [], "plan_missing": True,
                     "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
+                    "plan_generation_result": request.app.state.plan_generation_result,
                     **flash_context(request),
                 },
             )
@@ -826,6 +844,7 @@ def create_app(
                 "plan_missing": False,
                 "map_data_json": _safe_json_for_script(map_data),
                 "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
+                "plan_generation_result": request.app.state.plan_generation_result,
                 **flash_context(request),
             },
         )
