@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import sys
 from collections import Counter
 from datetime import datetime
@@ -54,6 +55,18 @@ def _setup_logging(run_name: str) -> Path:
     console.addFilter(_NoTracebackFilter())
     root.addHandler(console)
     return log_path
+
+
+def _lan_ip() -> str:
+    """Best-effort guess at this machine's LAN IP, purely for a friendlier `serve` startup
+    message — doesn't actually send any traffic (UDP connect() to a public IP just asks the OS
+    which local interface/route it would use)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        except OSError:
+            return "<this-server's-LAN-IP>"
 
 
 @app.command()
@@ -952,7 +965,7 @@ def set_dispatch_center(
 
 @app.command()
 def serve(
-    host: str = "127.0.0.1",
+    host: str = "0.0.0.0",
     port: int = 8000,
     env_file: str = ".env",
     db_path: str = "mc_autobuilder.db",
@@ -962,9 +975,14 @@ def serve(
     """Run the web dashboard (Phase 6) — a full control panel for everything the CLI can do,
     gated behind its own DASHBOARD_PASSWORD (see .env).
 
-    Defaults to binding 127.0.0.1 only (not reachable off the server) — pass --host 0.0.0.0
-    deliberately if you want it reachable elsewhere, e.g. through an SSH tunnel or your own
-    reverse proxy with TLS. Requires the `web` extra: `pip install -e ".[web]"`.
+    Binds every network interface by default so it's reachable from any device on your LAN at
+    http://<this-server's-LAN-IP>:8000 — no SSH tunnel needed. The DASHBOARD_PASSWORD gate (see
+    .env) is what actually protects it, so make sure that's set to a long random value. Pass
+    --host 127.0.0.1 to restrict it to the server itself instead (e.g. if you'd rather reach it
+    only through your own SSH tunnel or reverse proxy). Never expose this directly to the public
+    internet (e.g. via router port-forwarding) without your own reverse proxy adding TLS — plain
+    HTTP sends the dashboard password in cleartext. Requires the `web` extra:
+    `pip install -e ".[web]"`.
     """
     try:
         import uvicorn
@@ -989,7 +1007,12 @@ def serve(
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"Dashboard starting at http://{host}:{port} — full log: {log_path}")
+    typer.echo(f"Full log: {log_path}")
+    if host in ("0.0.0.0", "::"):
+        typer.secho(f"Dashboard reachable at http://{_lan_ip()}:{port} from any device on your LAN.", bold=True)
+        typer.echo(f"(Also reachable locally at http://127.0.0.1:{port} on this server.)")
+    else:
+        typer.secho(f"Dashboard starting at http://{host}:{port}", bold=True)
     uvicorn.run(web_app, host=host, port=port, log_config=None)
 
 

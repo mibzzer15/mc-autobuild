@@ -3,7 +3,7 @@ import json
 from typer.testing import CliRunner
 
 from mc_autobuilder.auth import SessionExpiredError
-from mc_autobuilder.cli import app
+from mc_autobuilder.cli import _lan_ip, app
 from mc_autobuilder.mc_client import (
     AssignPersonnelResult,
     BuildResult,
@@ -528,3 +528,9 @@ def test_set_dispatch_center_execute_confirmed_reports_success(tmp_path, monkeyp
 
     assert result.exit_code == 0
     assert "now assigned to dispatch center 2534509" in result.output
+
+
+def test_lan_ip_never_raises_and_returns_a_string():
+    # Purely a best-effort startup message for `serve --host 0.0.0.0` - must never crash the
+    # server just because it couldn't guess an IP (e.g. no network at all).
+    assert isinstance(_lan_ip(), str)

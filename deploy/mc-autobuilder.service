@@ -1,0 +1,14 @@
+[Unit]
+Description=mc-autobuilder web dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=mcbot
+WorkingDirectory=/home/mcbot/mc-autobuild
+ExecStart=/home/mcbot/mc-autobuild/.venv/bin/mc-autobuilder serve --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -63,19 +63,48 @@ dashboard can spend real credits):
 ```bash
 pip install -e ".[web]"
 echo "DASHBOARD_PASSWORD=$(openssl rand -hex 16)" >> .env
-mc-autobuilder serve --host 127.0.0.1 --port 8000
+grep DASHBOARD_PASSWORD .env   # note this down, you'll need it to log in
+mc-autobuilder serve
 ```
 
-- Binds `127.0.0.1` by default — not reachable off the server unless you pass `--host 0.0.0.0`
-  deliberately (e.g. behind your own reverse proxy with TLS) or use an SSH tunnel
-  (`ssh -L 8000:localhost:8000 you@server`).
-- Safety rules match the CLI exactly: money-spending actions (expand, buy vehicle) are a genuine
-  two-step preview → confirm flow, never a single click; free actions (toggle service, hire,
-  assign personnel, set dispatch center) are a single deliberate form submit whose button states
-  the exact consequence. Every action verifies success the same way its CLI equivalent does.
-- Add `DASHBOARD_SECRET_KEY=<a long random value>` to `.env` if you want logins to survive a
-  server restart (otherwise a fresh key is generated each time the server starts, which just logs
-  everyone out — not a security issue).
+That's it — it binds every network interface by default, so any device on your local network
+(your Windows PC, phone, etc.) can browse straight to it at **`http://<server's-LAN-IP>:8000`**
+(the command prints the exact URL on startup). No SSH tunnel required. The password screen is
+what actually protects it, so make sure `DASHBOARD_PASSWORD` is a long random value, not something
+guessable.
+
+If your server has `ufw` enabled, you'll need to open the port once: `sudo ufw allow 8000/tcp`.
+
+**Never port-forward this out to the public internet** without your own reverse proxy adding TLS
+— plain HTTP sends the dashboard password in cleartext, which is fine on a trusted home LAN but
+not over the open internet. If you'd rather it not be reachable on the LAN at all (e.g. you only
+ever want to reach it via SSH tunnel yourself), pass `--host 127.0.0.1` instead.
+
+### Running it persistently (systemd)
+
+By default `serve` only runs as long as its terminal session is open. To have it run in the
+background permanently and restart automatically (on crash or server reboot), install it as a
+systemd service — a template is at `deploy/mc-autobuilder.service`:
+
+```bash
+sudo cp deploy/mc-autobuilder.service /etc/systemd/system/
+sudo nano /etc/systemd/system/mc-autobuilder.service   # fix the User=/WorkingDirectory=/ExecStart= paths for your setup
+sudo systemctl daemon-reload
+sudo systemctl enable --now mc-autobuilder
+sudo systemctl status mc-autobuilder     # check it started
+journalctl -u mc-autobuilder -f          # follow its logs
+```
+
+- Add `DASHBOARD_SECRET_KEY=<a long random value>` to `.env` so logins survive a service restart
+  (otherwise a fresh key is generated every time it starts, which just logs everyone out — not a
+  security issue, just an inconvenience).
+- After a `git pull` with code changes, restart it: `sudo systemctl restart mc-autobuilder`.
+
+Safety rules match the CLI exactly regardless of how you run it: money-spending actions (expand,
+buy vehicle) are a genuine two-step preview → confirm flow, never a single click; free actions
+(toggle service, hire, assign personnel, set dispatch center) are a single deliberate form submit
+whose button states the exact consequence. Every action verifies success the same way its CLI
+equivalent does.
 
 ## Requirements
 
