@@ -1,4 +1,5 @@
 import json
+import time
 from urllib.parse import unquote
 
 import pytest
@@ -15,6 +16,7 @@ from mc_autobuilder.mc_client import (
     VehicleOption,
     VehiclePurchaseResult,
 )
+from mc_autobuilder.models import get_preset_log
 from mc_autobuilder.web.app import create_app
 
 PASSWORD = "testpass123"
@@ -275,3 +277,137 @@ def test_plan_build_two_step_flow(client, monkeypatch, tmp_path):
     # entry still exists in plan.json (build doesn't rewrite it), but /plan itself should show 0 pending.
     resp2 = client.get("/plan")
     assert "0 station(s) to build" in resp2.text or "already done" in resp2.text
+
+
+def _wait_for(predicate, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_presets_list_shows_no_preset_by_default(client):
+    _login(client)
+    resp = client.get("/presets")
+    assert resp.status_code == 200
+    assert "No preset" in resp.text
+
+
+def test_preset_edit_form_renders_without_a_synced_building_of_that_type(client):
+    _login(client)
+    resp = client.get("/presets/0")
+    assert resp.status_code == 200
+    assert "No Fire station synced yet" in resp.text.replace("&#39;", "'")
+
+
+def test_preset_save_and_reload_round_trips(client):
+    _login(client)
+    resp = client.post(
+        "/presets/0",
+        data={
+            "max_level": "on",
+            "manage_service": "on",
+            "target_enabled": "on",
+            "hire_days": "3",
+            "vehicle_type_id": ["0", ""],
+            "vehicle_count": ["2", ""],
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    resp = client.get("/presets/0")
+    assert 'checked' in resp.text
+    assert 'value="3"' in resp.text  # hire_days
+    assert 'value="0"' in resp.text  # vehicle_type_id
+    assert 'value="2"' in resp.text  # vehicle_count
+
+    resp = client.get("/presets")
+    assert "Max level" in resp.text
+    assert "Keep in service" in resp.text
+    assert "Recruit 3d" in resp.text
+
+
+def test_building_detail_shows_no_preset_configured_by_default(client, monkeypatch):
+    _login(client)
+    _patch_building_detail_deps(monkeypatch)
+    resp = client.get("/buildings/5558174")
+    assert "No preset configured for this building type" in resp.text
+
+
+def test_apply_preset_runs_in_background_and_logs_actions(client, monkeypatch):
+    _login(client)
+    client.post(
+        "/presets/0",
+        data={"hire_days": "3", "vehicle_type_id": [""], "vehicle_count": [""]},
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_detail",
+        lambda self, bid: {"building_type": 0, "level": 0, "enabled": True, "hiring_phase": 0},
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.hire",
+        lambda self, bid, days: HireResult(True, days, 302),
+    )
+
+    resp = client.post("/buildings/5558174/apply-preset", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "started in the background" in unquote(resp.headers["location"])
+
+    session_factory = client.app.state.session_factory
+    assert _wait_for(lambda: len(get_preset_log(session_factory(), 5558174)) > 0)
+    assert 5558174 not in client.app.state.presets_in_progress
+
+
+def test_apply_preset_rejects_double_trigger_while_in_progress(client, monkeypatch):
+    _login(client)
+    client.post("/presets/0", data={"hire_days": "3", "vehicle_type_id": [""], "vehicle_count": [""]})
+    # Manually mark it as already running, as if a previous click's background thread hadn't
+    # finished yet - the point is the *route* rejects a second trigger, not the thread timing.
+    client.app.state.presets_in_progress.add(5558174)
+    try:
+        resp = client.post("/buildings/5558174/apply-preset", follow_redirects=False)
+        assert "already in progress" in unquote(resp.headers["location"])
+    finally:
+        client.app.state.presets_in_progress.discard(5558174)
+
+
+def test_plan_build_auto_applies_preset_when_one_is_configured(client, monkeypatch, tmp_path):
+    _login(client)
+    client.post("/presets/5", data={"hire_days": "1", "vehicle_type_id": [""], "vehicle_count": [""]})
+
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "to_build": [
+                    {
+                        "poi_id": 9, "poi_name": "Test", "building_type": 5,
+                        "building_type_name": "Police station", "name": "Test PD",
+                        "latitude": 1.0, "longitude": 2.0, "estimated_cost": 100_000,
+                    }
+                ]
+            }
+        )
+    )
+    client.app.state.plan_path = str(plan_path)
+
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: BuildResult(True, {"id": 555}, 100_000, 200),
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_detail",
+        lambda self, bid: {"building_type": 5, "hiring_phase": 0},
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.hire", lambda self, bid, days: HireResult(True, days, 302)
+    )
+
+    resp = client.post("/plan/build", data={"poi_id": "9"}, follow_redirects=False)
+    assert "Preset application started" in unquote(resp.headers["location"])
+
+    session_factory = client.app.state.session_factory
+    assert _wait_for(lambda: len(get_preset_log(session_factory(), 555)) > 0)

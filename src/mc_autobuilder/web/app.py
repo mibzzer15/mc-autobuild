@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import threading
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,7 +29,19 @@ from starlette.middleware.sessions import SessionMiddleware
 from ..auth import AuthConfig, SessionExpiredError, build_session
 from ..constants import BUILDING_TYPES
 from ..mc_client import MissionChiefClient, summarize_html_for_log
-from ..models import Building, get_session_factory, has_completed_action, init_db, record_completed_action, upsert_buildings
+from ..models import (
+    Building,
+    get_preset,
+    get_preset_log,
+    get_session_factory,
+    has_completed_action,
+    init_db,
+    list_presets,
+    record_completed_action,
+    save_preset,
+    upsert_buildings,
+)
+from ..presets import apply_preset, parse_vehicles_json
 from ..web_config import WebConfig
 
 logger = logging.getLogger("mc_autobuilder.web")
@@ -62,6 +75,9 @@ def create_app(
     app.state.plan_path = plan_path
     app.state.config_file = config_file
     app.state.mc_client = None
+    # building_ids with a preset application currently running in a background thread - guards
+    # against double-triggering (e.g. double-clicking "Apply preset") while one's already going.
+    app.state.presets_in_progress = set()
 
     @app.exception_handler(NotAuthenticated)
     async def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
@@ -127,6 +143,41 @@ def create_app(
         except Exception as exc:
             logger.exception("Unexpected error during %s", action_label)
             return None, flash_redirect(back_url, f"Unexpected error during {action_label}: {exc}", "error")
+
+    def _run_preset_in_background(mc_client: MissionChiefClient, building_id: int, preset) -> None:
+        db = request_app_session_factory()
+        try:
+            apply_preset(mc_client, db, building_id, preset)
+        except Exception:
+            logger.exception("Preset application crashed for building %s", building_id)
+        finally:
+            db.close()
+            app.state.presets_in_progress.discard(building_id)
+
+    # Bound once here (not per-request) since the background thread has no Request of its own.
+    def request_app_session_factory():
+        return app.state.session_factory()
+
+    def start_preset_application(request: Request, building_id: int, building_type: int) -> tuple[str, str]:
+        """Kicks off apply_preset in a background thread (it can take minutes - expand-to-max
+        alone can be dozens of sequential rate-limited requests). Returns (status, detail):
+        status is "started", "no_preset", "already_running", or "error" (detail has the message)."""
+        if building_id in request.app.state.presets_in_progress:
+            return "already_running", "A preset application is already in progress for this station."
+        with db_session(request) as db:
+            preset = get_preset(db, building_type)
+        if preset is None:
+            return "no_preset", "No preset configured for this building type."
+        try:
+            client = get_client(request)
+        except SessionExpiredError as exc:
+            return "error", f"Authentication failed: {exc}"
+
+        request.app.state.presets_in_progress.add(building_id)
+        threading.Thread(
+            target=_run_preset_in_background, args=(client, building_id, preset), daemon=True
+        ).start()
+        return "started", "Preset application started in the background — refresh this page to see progress."
 
     # ---------------------------------------------------------------- auth
 
@@ -212,6 +263,8 @@ def create_app(
 
         with db_session(request) as db:
             cached = db.get(Building, building_id)
+            preset = get_preset(db, detail["building_type"])
+            preset_log = get_preset_log(db, building_id, limit=15)
 
         return templates.TemplateResponse(
             request,
@@ -225,9 +278,28 @@ def create_app(
                 "vehicle_options": sorted(vehicle_options.values(), key=lambda o: o.vehicle_type_id),
                 "hire_options": hire_options,
                 "BUILDING_TYPES": BUILDING_TYPES,
+                "preset": preset,
+                "preset_log": preset_log,
+                "preset_in_progress": building_id in request.app.state.presets_in_progress,
                 **flash_context(request),
             },
         )
+
+    @app.post("/buildings/{building_id}/apply-preset")
+    def apply_preset_route(request: Request, building_id: int, _: None = Depends(require_login)):
+        back_url = f"/buildings/{building_id}"
+        if building_id in request.app.state.presets_in_progress:
+            return flash_redirect(back_url, "A preset application is already in progress for this station.", "error")
+        try:
+            detail = get_client(request).get_building_detail(building_id)
+        except SessionExpiredError as exc:
+            return flash_redirect(back_url, f"Authentication failed: {exc}", "error")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Could not read building %s before applying preset", building_id)
+            return flash_redirect(back_url, f"Unexpected error: {exc}", "error")
+
+        status, message = start_preset_application(request, building_id, detail["building_type"])
+        return flash_redirect(back_url, message, "success" if status == "started" else "error")
 
     @app.post("/buildings/{building_id}/toggle-service")
     def toggle_service_route(request: Request, building_id: int, _: None = Depends(require_login)):
@@ -378,6 +450,73 @@ def create_app(
             f"Vehicle {vehicle_id} now has {result.assigned_personnel_count} assigned crew.",
         )
 
+    # ------------------------------------------------------------- presets
+
+    @app.get("/presets", response_class=HTMLResponse)
+    def presets_list(request: Request, _: None = Depends(require_login)):
+        with db_session(request) as db:
+            presets = {p.building_type: p for p in list_presets(db)}
+        return templates.TemplateResponse(
+            request,
+            "presets.html",
+            {"presets": presets, "BUILDING_TYPES": BUILDING_TYPES, **flash_context(request)},
+        )
+
+    @app.get("/presets/{building_type}", response_class=HTMLResponse)
+    def preset_edit(request: Request, building_type: int, _: None = Depends(require_login)):
+        with db_session(request) as db:
+            preset = get_preset(db, building_type)
+            # A representative building of this type (if one's been synced) so the vehicle
+            # catalog can be shown with real names/prices instead of asking for raw ids blind.
+            example_building = db.query(Building).filter_by(building_type=building_type).first()
+        vehicle_catalog = None
+        if example_building is not None:
+            try:
+                vehicle_catalog = sorted(
+                    get_client(request).get_vehicle_purchase_options(example_building.id).values(),
+                    key=lambda o: o.vehicle_type_id,
+                )
+            except Exception:  # noqa: BLE001 - catalog is a nice-to-have, not required to edit
+                logger.exception("Could not load vehicle catalog for building_type %s", building_type)
+
+        return templates.TemplateResponse(
+            request,
+            "preset_edit.html",
+            {
+                "building_type": building_type,
+                "building_type_name": BUILDING_TYPES.get(building_type, f"Type {building_type}"),
+                "preset": preset,
+                "vehicles": parse_vehicles_json(preset.vehicles_json) if preset else [],
+                "vehicle_catalog": vehicle_catalog,
+                "example_building": example_building,
+                **flash_context(request),
+            },
+        )
+
+    @app.post("/presets/{building_type}")
+    async def preset_save(request: Request, building_type: int, _: None = Depends(require_login)):
+        form = await request.form()
+        hire_days_raw = (form.get("hire_days") or "").strip()
+
+        vehicles = []
+        for vt_raw, count_raw in zip(form.getlist("vehicle_type_id"), form.getlist("vehicle_count")):
+            vt_raw, count_raw = vt_raw.strip(), count_raw.strip()
+            if vt_raw and count_raw and int(count_raw) > 0:
+                vehicles.append({"vehicle_type_id": int(vt_raw), "count": int(count_raw)})
+
+        with db_session(request) as db:
+            save_preset(
+                db,
+                building_type,
+                max_level=form.get("max_level") == "on",
+                manage_service=form.get("manage_service") == "on",
+                target_enabled=form.get("target_enabled") == "on",
+                hire_days=int(hire_days_raw) if hire_days_raw else None,
+                vehicles=vehicles,
+            )
+        type_name = BUILDING_TYPES.get(building_type, f"Type {building_type}")
+        return flash_redirect("/presets", f"Saved preset for {type_name}.")
+
     # ---------------------------------------------------------------- plan
 
     @app.get("/plan", response_class=HTMLResponse)
@@ -434,15 +573,24 @@ def create_app(
         if redirect:
             return redirect
 
+        preset_note = ""
         if result.success:
             with db_session(request) as db:
                 record_completed_action(
                     db, action_type="build", poi_id=poi_id, building_id=result.building["id"],
                     building_type=entry["building_type"], name=entry["name"], cost=result.price,
                 )
+            status, message = start_preset_application(request, result.building["id"], entry["building_type"])
+            if status == "started":
+                preset_note = " Preset application started in the background."
+            elif status == "error":
+                preset_note = f" (Could not start its preset: {message})"
+            # "no_preset"/"already_running" need no note - nothing configured, or nothing to add.
+
         return report_action_result(
             request, "/plan", "build", result,
-            f"Built {entry['name']!r} — building id {result.building['id']}, cost {result.price:,} credits.",
+            f"Built {entry['name']!r} — building id {result.building['id']}, cost {result.price:,} credits."
+            f"{preset_note}",
         )
 
     return app

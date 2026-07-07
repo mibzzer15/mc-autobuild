@@ -18,6 +18,7 @@ from .constants import BUILDING_TYPES
 from .mc_client import MissionChiefClient, summarize_html_for_log
 from .models import (
     Building,
+    get_preset,
     get_session_factory,
     has_completed_action,
     init_db,
@@ -25,6 +26,7 @@ from .models import (
     upsert_buildings,
 )
 from .planner import Plan, build_plan
+from .presets import apply_preset as apply_preset_lib
 from .rlm_client import RLM_BASE_URL, BoundingBox, RLMClient, RLMClientConfig, geocode_city
 
 app = typer.Typer(add_completion=False, help="Automate MissionChief station management.")
@@ -169,6 +171,22 @@ def _report_write_result(logger, log_path: Path, result, action_label: str, succ
             fg=typer.colors.RED,
         )
     typer.echo(f"Full log: {log_path}")
+
+
+def _apply_preset_if_configured(logger, session_factory, mc_client: MissionChiefClient, building_id: int, building_type: int) -> None:
+    """After a successful build, applies that building_type's preset (if one's configured) right
+    away — same auto-apply behavior as the web dashboard's plan-build. Synchronous here (unlike
+    the dashboard's background thread) since the CLI already blocks for the whole run/build
+    anyway; expand-to-max in particular can take a while (docs/missionchief-api.md notes it can be
+    dozens of sequential rate-limited requests)."""
+    with session_factory() as db:
+        preset = get_preset(db, building_type)
+        if preset is None:
+            return
+        typer.echo(f"Applying preset for building_type {building_type}...")
+        for message in apply_preset_lib(mc_client, db, building_id, preset):
+            typer.echo(f"  {message}")
+            logger.info("Preset action for building %s: %s", building_id, message)
 
 
 def _resolve_region_bbox(region, geocode_session: requests.Session) -> tuple[BoundingBox, str]:
@@ -449,6 +467,7 @@ def build(
             fg=typer.colors.GREEN,
             bold=True,
         )
+        _apply_preset_if_configured(logger, session_factory, mc_client, result.building["id"], entry["building_type"])
     else:
         logger.error(
             "Build could not be confirmed. POST /buildings returned HTTP %s; no new building of "
@@ -643,6 +662,7 @@ def run(
             result.price,
         )
         typer.secho(f"  Built — building id {result.building['id']}, cost {result.price:,} credits.", fg=typer.colors.GREEN)
+        _apply_preset_if_configured(logger, session_factory, mc_client, result.building["id"], entry["building_type"])
 
     typer.echo("")
     typer.secho(f"Run complete: built {built}/{len(pending)}, spent {spent:,} credits.", bold=True)
@@ -961,6 +981,49 @@ def set_dispatch_center(
         logger, log_path, result, "set-dispatch-center",
         f"Building {building_id} is now assigned to dispatch center {leitstelle_id}.",
     )
+
+
+@app.command()
+def apply_preset(
+    building_id: int = typer.Option(..., help="MissionChief building id (from `sync` or the game)"),
+    env_file: str = ".env",
+    db_path: str = "mc_autobuilder.db",
+) -> None:
+    """Re-apply the preset configured for this station's building_type (see the web dashboard's
+    Presets page — presets aren't editable from the CLI). Idempotent: only takes the actions
+    still needed to reach the preset's targets, so it's safe to run repeatedly (e.g. after
+    changing a preset, or backfilling a station built before the preset existed).
+    """
+    log_path = _setup_logging("apply_preset")
+    logger = logging.getLogger("mc_autobuilder.apply_preset")
+
+    engine = init_db(db_path)
+    session_factory = get_session_factory(engine)
+
+    try:
+        mc_client = _build_client(env_file)
+        detail = mc_client.get_building_detail(building_id)
+    except SessionExpiredError as exc:
+        typer.secho(f"Authentication failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    with session_factory() as db:
+        preset = get_preset(db, detail["building_type"])
+    if preset is None:
+        typer.secho(
+            f"No preset configured for building_type {detail['building_type']} "
+            f"({BUILDING_TYPES.get(detail['building_type'], '?')}). Set one up on the web dashboard's Presets page.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Applying preset to building {building_id}...")
+    with session_factory() as db:
+        for message in apply_preset_lib(mc_client, db, building_id, preset):
+            typer.echo(f"  {message}")
+            logger.info("Preset action for building %s: %s", building_id, message)
+    typer.echo(f"Full log: {log_path}")
 
 
 @app.command()

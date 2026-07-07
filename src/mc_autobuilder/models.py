@@ -48,6 +48,44 @@ class CompletedAction(Base):
     created_at = Column(DateTime, nullable=False)
 
 
+class StationPreset(Base):
+    """One row per building_type: what to do to every station of that type — expand to max
+    level, a desired service state, a free hiring phase, and a shopping list of vehicles.
+    Applying a preset (presets.py) is idempotent, so this table only needs to describe the
+    *target* state, not a one-shot script."""
+
+    __tablename__ = "station_presets"
+
+    building_type = Column(Integer, primary_key=True)
+    max_level = Column(Boolean, nullable=False, default=False)
+    manage_service = Column(Boolean, nullable=False, default=False)
+    target_enabled = Column(Boolean, nullable=False, default=True)
+    hire_days = Column(Integer, nullable=True)
+    # JSON list of {"vehicle_type_id": int, "count": int} - see presets.py.
+    vehicles_json = Column(Text, nullable=False, default="[]")
+    updated_at = Column(DateTime, nullable=False)
+
+
+class PresetActionLog(Base):
+    """Append-only record of every action a preset application has taken for a specific
+    building. Two jobs: (1) shows progress on the building's page while/after a preset runs
+    (which can take minutes - expand-to-max alone can be dozens of sequential, rate-limited
+    requests), and (2) is what makes vehicle-purchase counts idempotent - MissionChief's own API
+    has no confirmed way to reliably tell "how many of catalog vehicle_type_id X are already at
+    this station" (see docs/missionchief-api.md), so we track our own purchases instead of
+    guessing at an unconfirmed field mapping."""
+
+    __tablename__ = "preset_action_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    building_id = Column(Integer, nullable=False)
+    action_type = Column(String, nullable=False)  # "expand" | "toggle_service" | "hire" | "buy_vehicle"
+    detail = Column(Integer, nullable=True)  # level / vehicle_type_id / hire days, depending on action_type
+    success = Column(Boolean, nullable=False)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False)
+
+
 def get_engine(db_path: str) -> Engine:
     return create_engine(f"sqlite:///{db_path}")
 
@@ -118,3 +156,68 @@ def record_completed_action(
         )
     )
     db.commit()
+
+
+def get_preset(db: Session, building_type: int) -> StationPreset | None:
+    return db.get(StationPreset, building_type)
+
+
+def list_presets(db: Session) -> list[StationPreset]:
+    return db.query(StationPreset).order_by(StationPreset.building_type).all()
+
+
+def save_preset(
+    db: Session,
+    building_type: int,
+    *,
+    max_level: bool,
+    manage_service: bool,
+    target_enabled: bool,
+    hire_days: int | None,
+    vehicles: list[dict],
+) -> None:
+    obj = db.get(StationPreset, building_type)
+    if obj is None:
+        obj = StationPreset(building_type=building_type)
+        db.add(obj)
+    obj.max_level = max_level
+    obj.manage_service = manage_service
+    obj.target_enabled = target_enabled
+    obj.hire_days = hire_days
+    obj.vehicles_json = json.dumps(vehicles)
+    obj.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def log_preset_action(
+    db: Session, building_id: int, action_type: str, detail: int | None, success: bool, message: str
+) -> None:
+    db.add(
+        PresetActionLog(
+            building_id=building_id,
+            action_type=action_type,
+            detail=detail,
+            success=success,
+            message=message,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    db.commit()
+
+
+def count_preset_vehicle_purchases(db: Session, building_id: int, vehicle_type_id: int) -> int:
+    return (
+        db.query(PresetActionLog)
+        .filter_by(building_id=building_id, action_type="buy_vehicle", detail=vehicle_type_id, success=True)
+        .count()
+    )
+
+
+def get_preset_log(db: Session, building_id: int, limit: int = 20) -> list[PresetActionLog]:
+    return (
+        db.query(PresetActionLog)
+        .filter_by(building_id=building_id)
+        .order_by(PresetActionLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )

@@ -106,6 +106,31 @@ buy vehicle) are a genuine two-step preview → confirm flow, never a single cli
 whose button states the exact consequence. Every action verifies success the same way its CLI
 equivalent does.
 
+### Presets
+
+The dashboard's **Presets** page lets you configure, per building type, what a station of that
+type should always end up looking like: expanded to its maximum level, a desired in/out-of-service
+state, a free day-based recruiting phase, and a shopping list of vehicles (by catalog
+`vehicle_type_id` + target count — the edit page shows a live catalog with real names/prices if
+you've already synced or built a station of that type).
+
+- **Applied automatically** right after a station is built from the plan (CLI `build`/`run`, or
+  the dashboard's Plan page) — no extra step needed.
+- **Re-appliable anytime** from any station's detail page via "Apply preset now" (or `mc-autobuilder
+  apply-preset --building-id <id>` from the CLI) — useful after changing a preset, or to backfill
+  stations built before the preset existed.
+- **Idempotent and safe to re-run**: it only takes the actions still needed (won't re-expand past
+  the level it's already at, won't toggle service state if it already matches, skips hiring if a
+  phase is already running, and won't over-buy vehicles past each type's target count).
+- **Runs in the background** on the dashboard (expanding to max level alone can be dozens of
+  sequential, rate-limited requests, so this can take minutes) — refresh the building's page to
+  watch its action log fill in as it goes. The CLI version runs synchronously and prints progress
+  as it happens.
+- **Scope, for now**: only actions already confirmed against a real account are covered (expand,
+  service toggle, vehicles, hiring). Station extensions and equipment purchase are **not**
+  included yet — those were never captured live (see `docs/missionchief-api.md`), so adding preset
+  support for them now would mean guessing at unconfirmed endpoints.
+
 ## Requirements
 
 - **Python 3.11+**
@@ -372,12 +397,17 @@ pytest
 ```
 src/mc_autobuilder/
   auth.py         # cookie / credentials / Playwright auth, CSRF token handling, session-expiry detection
-  mc_client.py    # rate-limited MissionChief API client (buildings, live build prices, create_building)
+  mc_client.py    # rate-limited MissionChief API client (buildings, vehicles, expand, hire, dispatch, ...)
   rlm_client.py   # RLM POI database client (bbox queries, disk caching, city geocoding)
   planner.py      # pure dedupe/build-planning logic (haversine distance, budget/caps)
+  presets.py      # idempotent per-building-type preset application (expand/service/hire/vehicles)
   config.py       # config.yaml loading and validation
-  models.py       # SQLite/SQLAlchemy local cache + completed-action idempotency log
-  cli.py          # typer CLI (`login`, `sync`, `plan`, `build`, `run`)
+  web_config.py   # dashboard password/secret-key loading
+  models.py       # SQLite/SQLAlchemy local cache, completed-action + preset-action idempotency logs
+  cli.py          # typer CLI (`login`, `sync`, `plan`, `build`, `run`, Phase 5 actions, `serve`)
+  web/            # FastAPI dashboard (app.py, templates/, static/) — see `mc-autobuilder serve`
+deploy/
+  mc-autobuilder.service  # systemd unit template for running the dashboard persistently
 config.example.yaml
 docs/
   rlm-api.md            # RLM API research findings

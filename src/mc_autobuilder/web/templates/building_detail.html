@@ -10,6 +10,40 @@
 </p>
 
 <div class="card">
+  <h2>Preset</h2>
+  {% if preset %}
+    <p class="muted">
+      {{ "Max level" if preset.max_level }}
+      {% if preset.manage_service %}· {{ "Keep in service" if preset.target_enabled else "Keep out of service" }}{% endif %}
+      {% if preset.hire_days %}· Recruit {{ preset.hire_days }}d{% endif %}
+    </p>
+    {% if preset_in_progress %}
+    <p><strong>Applying now in the background — refresh this page to see progress.</strong></p>
+    {% else %}
+    <form method="post" action="/buildings/{{ building_id }}/apply-preset">
+      <button type="submit" class="btn">Apply preset now</button>
+    </form>
+    {% endif %}
+    {% if preset_log %}
+    <table>
+      <thead><tr><th>When</th><th>Action</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for entry in preset_log %}
+        <tr>
+          <td>{{ entry.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+          <td>{{ entry.action_type }}{% if entry.detail is not none %} ({{ entry.detail }}){% endif %}</td>
+          <td>{{ "OK" if entry.success else "Failed" }} — {{ entry.message }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  {% else %}
+    <p class="muted">No preset configured for this building type. <a href="/presets">Set one up</a>.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Service state</h2>
   <form method="post" action="/buildings/{{ building_id }}/toggle-service">
     <button type="submit" class="btn">
