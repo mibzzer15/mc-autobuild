@@ -42,6 +42,48 @@
   · Total estimated cost: {{ "{:,}".format(total_estimated_cost) }} credits
 </p>
 
+{% if diagnostics %}
+<div class="card">
+  <h2>Why this plan?</h2>
+  {% if diagnostics.total_candidates == 0 %}
+  <p class="flash flash-error">
+    RLM returned <strong>0 candidate stations</strong> for every region/type below. That usually
+    means a region's bounding box doesn't cover any POIs, or a <code>building_types</code> mapping's
+    <code>poi_type</code> doesn't match an RLM table name. Check the per-row counts and your
+    <a href="/config">Config</a>.
+  </p>
+  {% elif entries|length == 0 %}
+  <p class="muted">
+    RLM returned {{ diagnostics.total_candidates }} candidate(s), but none made it into the plan —
+    see the skip counts below (most often they're all already-built duplicates).
+  </p>
+  {% else %}
+  <p class="muted">RLM returned {{ diagnostics.total_candidates }} candidate(s) across your regions.</p>
+  {% endif %}
+
+  <p class="muted">
+    Skipped: {{ diagnostics.skipped_duplicates }} already-built (duplicate),
+    {{ diagnostics.skipped_capped }} over per-type cap,
+    {{ diagnostics.skipped_budget }} over budget.
+  </p>
+
+  {% if diagnostics.candidate_breakdown %}
+  <table class="sortable">
+    <thead><tr><th>Region</th><th>poi_type</th><th>RLM candidates</th></tr></thead>
+    <tbody>
+      {% for row in diagnostics.candidate_breakdown %}
+      <tr>
+        <td>{{ row.region }}</td>
+        <td>{{ row.poi_type }}</td>
+        <td data-sort="{{ row.candidates }}">{{ row.candidates }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Map</h2>
   <p class="muted">

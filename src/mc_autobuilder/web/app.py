@@ -834,6 +834,16 @@ def create_app(
                 for b in existing
             ],
         }
+        # Breakdown of where candidates went, so an empty/short plan is self-explaining rather
+        # than a mystery: how many RLM candidates each region/poi_type returned, and how many
+        # were dropped as duplicates / over a per-type cap / over budget.
+        diagnostics = {
+            "total_candidates": data.get("total_candidates"),
+            "candidate_breakdown": data.get("candidate_breakdown", []),
+            "skipped_duplicates": len(data.get("skipped_duplicates", [])),
+            "skipped_capped": len(data.get("skipped_capped", [])),
+            "skipped_budget": len(data.get("skipped_budget", [])),
+        }
         return templates.TemplateResponse(
             request,
             "plan.html",
@@ -845,6 +855,7 @@ def create_app(
                 "map_data_json": _safe_json_for_script(map_data),
                 "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
                 "plan_generation_result": request.app.state.plan_generation_result,
+                "diagnostics": diagnostics,
                 **flash_context(request),
             },
         )

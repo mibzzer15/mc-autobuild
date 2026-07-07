@@ -46,12 +46,19 @@ def generate_plan(
     per_type_caps = {bt.building_type: bt.max_per_run for bt in config.building_types if bt.max_per_run}
 
     all_candidates = []
+    # Per (region, poi_type) candidate counts, so the dashboard can explain an empty plan: a
+    # region that returned 0 RLM POIs points at a bad bbox / poi_type mapping, whereas lots of
+    # candidates but 0 to build points at dedupe/cap/budget instead.
+    candidate_breakdown: list[dict] = []
     for region in config.regions:
         bbox, city_label = resolve_region_bbox(region, geocode_session)
         logger.info("Region %s resolved to bbox %s", region.name, bbox)
         for bt_config in config.building_types:
             pois = rlm_client.get_pois(bt_config.poi_type, bbox)
             logger.info("Region %s / %s: %d candidate POIs", region.name, bt_config.poi_type, len(pois))
+            candidate_breakdown.append(
+                {"region": region.name, "poi_type": bt_config.poi_type, "candidates": len(pois)}
+            )
             for poi in pois:
                 all_candidates.append(
                     {
@@ -94,6 +101,8 @@ def generate_plan(
     return {
         "generated_at": datetime.now().isoformat(),
         "regions": [r.name for r in config.regions],
+        "candidate_breakdown": candidate_breakdown,
+        "total_candidates": len(all_candidates),
         **merged.to_dict(),
         "budget": {
             "max_credits_per_run": config.max_credits_per_run,
