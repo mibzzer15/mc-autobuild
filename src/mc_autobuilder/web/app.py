@@ -30,7 +30,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from ..auth import AuthConfig, SessionExpiredError, build_session, load_config, update_env_file
 from ..config import Config, ConfigError, load_raw_config, save_raw_config
 from ..constants import BUILDING_TYPES
-from ..mc_client import MissionChiefClient, summarize_html_for_log
+from ..mc_client import MissionChiefClient, RateLimitConfig, summarize_html_for_log
 from ..models import (
     Building,
     get_preset,
@@ -81,6 +81,22 @@ def _region_to_row(region: dict) -> dict:
     else:
         row["mode"] = "bbox"
     return row
+
+
+def _rate_limit_from_config(config_file: str) -> RateLimitConfig:
+    """Reads the `rate_limiting` delays out of config.yaml so the dashboard's game requests honour
+    the same min/max the Config page edits. Falls back to RateLimitConfig's defaults when the file
+    or section is missing (e.g. a brand-new install), rather than erroring."""
+    rl = RateLimitConfig()
+    try:
+        section = (load_raw_config(config_file) or {}).get("rate_limiting") or {}
+    except Exception:
+        return rl
+    if "min_delay_seconds" in section:
+        rl.min_delay = float(section["min_delay_seconds"])
+    if "max_delay_seconds" in section:
+        rl.max_delay = float(section["max_delay_seconds"])
+    return rl
 
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -145,7 +161,11 @@ def create_app(
         callers should catch and show, not this constructor."""
         if request.app.state.mc_client is None:
             session = build_session(request.app.state.auth_config)
-            request.app.state.mc_client = MissionChiefClient(session, request.app.state.auth_config.base_url)
+            request.app.state.mc_client = MissionChiefClient(
+                session,
+                request.app.state.auth_config.base_url,
+                rate_limit=_rate_limit_from_config(request.app.state.config_file),
+            )
         return request.app.state.mc_client
 
     @contextmanager
@@ -245,11 +265,22 @@ def create_app(
             )
             plan_output = generate_plan(config, mc_client, rlm_client, existing_buildings)
             Path(app.state.plan_path).write_text(json.dumps(plan_output, indent=2))
-            count = len(plan_output["to_build"])
-            logger.info("Plan generation complete: %d station(s) to build", count)
+            entries = plan_output["to_build"]
+            # Count only what's actually left to build, matching the Plan page's own summary line -
+            # some plan entries may already have a completed build recorded (e.g. built earlier but
+            # not yet re-synced, so dedupe didn't drop them), and reporting the raw total here made
+            # the header ("N to build") disagree with the summary ("M to build, K already done").
+            db = app.state.session_factory()
+            try:
+                already_built = sum(1 for e in entries if has_completed_action(db, "build", e["poi_id"]))
+            finally:
+                db.close()
+            pending = len(entries) - already_built
+            logger.info("Plan generation complete: %d to build, %d already built", pending, already_built)
+            done_note = f" ({already_built} already built, skipping)" if already_built else ""
             app.state.plan_generation_result = {
                 "status": "success",
-                "message": f"Plan generated: {count} station(s) to build.",
+                "message": f"Plan generated: {pending} station(s) to build{done_note}.",
                 "finished_at": datetime.now().isoformat(timespec="seconds"),
             }
         except Exception as exc:
@@ -812,8 +843,8 @@ def create_app(
                 "credit_reserve": budget.get("credit_reserve", 0),
                 "rlm_cache_ttl_hours": rlm_cache.get("ttl_hours", 24),
                 "rlm_cache_dir": rlm_cache.get("cache_dir", ".rlm_cache"),
-                "rate_limit_min_delay": rate_limiting.get("min_delay_seconds", 2),
-                "rate_limit_max_delay": rate_limiting.get("max_delay_seconds", 5),
+                "rate_limit_min_delay": rate_limiting.get("min_delay_seconds", 0.3),
+                "rate_limit_max_delay": rate_limiting.get("max_delay_seconds", 0.8),
                 "mc_auth_mode": env_values.get("MC_AUTH_MODE", "cookie"),
                 "mc_username": env_values.get("MC_USERNAME", ""),
                 "mc_password_set": bool(env_values.get("MC_PASSWORD")),
@@ -908,8 +939,8 @@ def create_app(
                         "cache_dir": form.get("rlm_cache_dir") or ".rlm_cache",
                     },
                     "rate_limiting": {
-                        "min_delay_seconds": float(form.get("rate_limit_min_delay") or 2),
-                        "max_delay_seconds": float(form.get("rate_limit_max_delay") or 5),
+                        "min_delay_seconds": float(form.get("rate_limit_min_delay") or 0.3),
+                        "max_delay_seconds": float(form.get("rate_limit_max_delay") or 0.8),
                     },
                 }
             except ValueError as exc:
@@ -918,6 +949,9 @@ def create_app(
             return flash_redirect("/config", str(exc), "error")
 
         save_raw_config(request.app.state.config_file, data)
+        # Drop the cached client so edited rate-limiting delays take effect on the next request
+        # instead of sticking with whatever was read when the client was first built.
+        request.app.state.mc_client = None
 
         # MissionChief account settings live in .env, not config.yaml (see auth.py) - blank
         # fields mean "keep the current value", so they're simply omitted from the update rather

@@ -804,6 +804,60 @@ building_types:
     assert "1 station(s) to build" in page
 
 
+def test_plan_generate_count_matches_page_when_some_already_built(client, monkeypatch, tmp_path):
+    _login(client)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+mission_chief:
+  game_world: "US"
+regions:
+  - name: "Test Region"
+    bbox: {north: 1.0, south: 0.0, east: 1.0, west: 0.0}
+building_types:
+  poi_fire_station:
+    building_type: 0
+"""
+    )
+    plan_path = tmp_path / "plan.json"
+    client.app.state.config_file = str(config_path)
+    client.app.state.plan_path = str(plan_path)
+
+    # Two candidates; one of them was already built earlier (completed action recorded) but not
+    # re-synced, so dedupe keeps it in to_build. The header count and the page summary must agree.
+    from datetime import datetime
+
+    from mc_autobuilder.models import record_completed_action
+
+    db = client.app.state.session_factory()
+    record_completed_action(
+        db, action_type="build", poi_id=1, building_id=999, building_type=0, name="Already", cost=1
+    )
+    db.close()
+
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_prices", lambda self: {0: 100_000}
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.RLMClient.get_pois",
+        lambda self, poi_type, bbox: [
+            {"id": 1, "name": "Built One", "lat": 0.5, "lng": 0.5},
+            {"id": 2, "name": "New One", "lat": 0.9, "lng": 0.9},
+        ],
+    )
+
+    client.post("/plan/generate", follow_redirects=False)
+    assert _wait_for(lambda: client.app.state.plan_generation_result is not None)
+
+    # Generation message reflects only the 1 not-yet-built station, matching the page summary.
+    msg = client.app.state.plan_generation_result["message"]
+    assert "1 station(s) to build" in msg
+    assert "1 already built" in msg
+    page = client.get("/plan").text
+    assert "1 station(s) to build" in page
+    assert "1 already done" in page
+
+
 def test_plan_generate_surfaces_background_failure_instead_of_silent_nothing(client, monkeypatch, tmp_path):
     _login(client)
     config_path = tmp_path / "config.yaml"

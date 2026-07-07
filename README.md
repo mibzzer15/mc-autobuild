@@ -133,10 +133,13 @@ How it runs:
   target level, won't toggle service state if it already matches, skips hiring if a phase is
   already running, won't over-buy vehicles past each type's target count, and won't assign the
   same person to two different vehicles in one application).
-- **Runs in the background** on the dashboard (expanding several levels alone can be many
-  sequential, rate-limited requests, so this can take minutes) — refresh the building's page to
-  watch its action log fill in as it goes. The CLI version runs synchronously and prints progress
-  as it happens.
+- **Expands straight to the target level in a single request** rather than buying one rung at a
+  time — MissionChief's expand page lets you click directly to any reachable level, so reaching
+  level 39 is one purchase, not 39. Combined with a small default rate-limit delay (see
+  `rate_limiting` in `config.yaml`, editable on the Config page), a full station build-out
+  finishes in tens of seconds. Raise the delays there if you'd rather go gentler on the site.
+- **Runs in the background** on the dashboard — refresh the building's page to watch its action
+  log fill in as it goes. The CLI version runs synchronously and prints progress as it happens.
 - **Scope, for now**: only actions already confirmed against a real account are covered (expand,
   service toggle, vehicles, crew assignment, hiring). Station extensions, equipment purchase, and
   "auto" hiring are **not** included yet — those were never captured live (see

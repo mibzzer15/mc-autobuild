@@ -276,8 +276,12 @@ def summarize_html_for_log(html: str, max_chars: int = 2000) -> str:
 
 @dataclass
 class RateLimitConfig:
-    min_delay: float = 2.0
-    max_delay: float = 5.0
+    # A jittered pause between game requests so we don't hammer the site. Kept modest by default
+    # so a full station build-out (build + a single-request expand + service/hire + vehicles +
+    # crew) finishes in tens of seconds rather than minutes; raise these in config.yaml's
+    # `rate_limiting` section if you'd rather trade speed for a gentler footprint.
+    min_delay: float = 0.3
+    max_delay: float = 0.8
     max_retries: int = 4
     backoff_base: float = 2.0
 

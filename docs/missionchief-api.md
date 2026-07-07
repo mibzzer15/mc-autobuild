@@ -382,6 +382,11 @@ Fire Department Station 1", a Fire station) and its two vehicles (`14577420`, `1
 - Submitting the credits link is a plain `GET` (not a form POST) with no CSRF header — confirmed
   `302` redirect to `/buildings/<id>` on success. `level` is 0-indexed and must match one of the
   levels actually listed on the expand page (not just "current level + 1" — confirm from the page).
+- The expand page lists **every reachable target level** as its own link, and clicking a far one
+  jumps straight there rather than one rung at a time (confirmed against the account — e.g. a
+  low-level building can click the level-38 link and land on level 39 in a single request, paying
+  that link's listed price). To land on level `L` you click `?level=L-1`. `presets._expand_to_level`
+  uses this to reach a target level in one request instead of buying each rung sequentially.
 - Verify success via `GET /api/buildings/<id>`'s `level` field (confirmed present) increasing,
   same before/after-diff pattern as `create_building`.
 

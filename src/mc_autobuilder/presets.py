@@ -66,20 +66,33 @@ def apply_preset(mc_client: MissionChiefClient, db, building_id: int, preset: St
     return messages
 
 
+def _best_expand_param(prices: dict[int, int], current_level: int, target_level: int) -> int | None:
+    """Pick the `?level=` query param that jumps the building as close to `target_level` as the
+    expand page allows without overshooting. To land on level L you click `?level=L-1` (confirmed:
+    a level-0 building expands via `?level=0` to reach level 1). MissionChief lists every reachable
+    target level as its own link and clicking a far one jumps straight there, so we take the
+    highest offered rung that is at or above the current level and at or below `target_level - 1`."""
+    candidates = [p for p in prices if current_level <= p <= target_level - 1]
+    return max(candidates) if candidates else None
+
+
 def _expand_to_level(mc_client: MissionChiefClient, db, building_id: int, target_level: int) -> list[str]:
     messages = []
-    while True:
-        try:
-            current_level = mc_client.get_building_detail(building_id)["level"]
-        except Exception as exc:
-            messages.append(f"Stopped expanding: could not read live state ({exc}).")
-            logger.exception("Preset expand: could not read state for building %s", building_id)
-            break
+    try:
+        current_level = mc_client.get_building_detail(building_id)["level"]
+    except Exception as exc:
+        messages.append(f"Stopped expanding: could not read live state ({exc}).")
+        logger.exception("Preset expand: could not read state for building %s", building_id)
+        return messages
 
-        if current_level >= target_level:
-            messages.append(f"Already at level {current_level} (target {target_level}).")
-            break
+    if current_level >= target_level:
+        messages.append(f"Already at level {current_level} (target {target_level}).")
+        return messages
 
+    # Jump straight to the target in a single request rather than buying one rung at a time (up to
+    # ~38 extra round-trips for a full level-up). The loop only re-runs as a fallback if a single
+    # jump lands short of the target - e.g. if an account ever caps how far one expand can go.
+    while current_level < target_level:
         try:
             prices = mc_client.get_expand_prices(building_id)
         except Exception as exc:
@@ -87,30 +100,38 @@ def _expand_to_level(mc_client: MissionChiefClient, db, building_id: int, target
             logger.exception("Preset expand: could not read prices for building %s", building_id)
             break
 
-        # Confirmed live (docs/missionchief-api.md): the query param for "expand to the next
-        # level" equals the CURRENT level, not current+1 - e.g. a building at level 0 expands via
-        # `?level=0` to reach level 1. Passing current+1 here would buy the wrong, more expensive
-        # rung while skipping the one actually available next.
-        if current_level not in prices:
-            messages.append(f"No expand option available from level {current_level} — can't reach level {target_level}.")
+        param = _best_expand_param(prices, current_level, target_level)
+        if param is None:
+            messages.append(
+                f"No expand option available to reach level {target_level} from level {current_level} "
+                f"(offered levels: {sorted(prices)})."
+            )
             break
 
         try:
-            result = mc_client.expand_building(building_id, current_level)
+            result = mc_client.expand_building(building_id, param)
         except Exception as exc:
             messages.append(f"Stopped expanding at level {current_level}: {exc}")
-            log_preset_action(db, building_id, "expand", current_level, False, str(exc))
+            log_preset_action(db, building_id, "expand", param, False, str(exc))
             logger.exception("Preset expand: error expanding building %s", building_id)
             break
 
         log_preset_action(
-            db, building_id, "expand", current_level, result.success,
+            db, building_id, "expand", param, result.success,
             f"{result.price} credits" if result.success else "not confirmed",
         )
         if not result.success:
             messages.append(f"Stopped expanding at level {current_level}: could not confirm the expansion.")
             break
         messages.append(f"Expanded to level {result.new_level} ({result.price:,} credits).")
+
+        # Trust the independently-verified level from the result. Guard against a no-op response
+        # (level didn't move) so a bad jump can't spin this loop forever.
+        if result.new_level is None or result.new_level <= current_level:
+            messages.append("Expansion didn't advance the level — stopping.")
+            break
+        current_level = result.new_level
+
     return messages
 
 

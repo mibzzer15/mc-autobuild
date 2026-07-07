@@ -17,7 +17,20 @@ from mc_autobuilder.models import (
     log_preset_action,
     save_preset,
 )
-from mc_autobuilder.presets import apply_preset, dump_vehicles_json
+from mc_autobuilder.presets import apply_preset, dump_vehicles_json, _best_expand_param
+
+
+def test_best_expand_param_picks_highest_rung_without_overshooting():
+    prices = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5}
+    # From level 0, to reach level 3 we click ?level=2 (target - 1).
+    assert _best_expand_param(prices, current_level=0, target_level=3) == 2
+    # From level 2, same target still means ?level=2.
+    assert _best_expand_param(prices, current_level=2, target_level=3) == 2
+    # Target beyond what's offered -> take the highest offered rung and loop from there.
+    assert _best_expand_param(prices, current_level=0, target_level=99) == 4
+    # Nothing at or above the current level -> no option.
+    assert _best_expand_param({0: 1, 1: 2}, current_level=5, target_level=10) is None
+    assert _best_expand_param({}, current_level=0, target_level=5) is None
 
 
 @pytest.fixture
@@ -48,28 +61,55 @@ def test_apply_preset_with_nothing_configured_is_a_noop_message(client, db):
     assert messages == ["Nothing to do — this preset has no actions configured."]
 
 
-def test_expand_to_level_uses_current_level_as_the_query_param_not_current_plus_one(client, db, monkeypatch):
-    # Real confirmed semantics (docs/missionchief-api.md): a building at level 0 expands via
-    # `?level=0` to reach level 1 - the query param equals the CURRENT level, not current+1.
-    # This regression-guards a bug where the preset loop passed current+1 instead, which would
-    # buy the wrong (more expensive) rung and skip the one actually available next.
-    levels = iter([0, 1, 2])
+def test_expand_jumps_straight_to_target_in_one_request(client, db, monkeypatch):
+    # Confirmed semantics (docs/missionchief-api.md): the expand page lists every reachable target
+    # level and clicking a far one jumps straight there. To land on level L you click `?level=L-1`
+    # (a level-0 building expands via `?level=0` to reach level 1). So reaching level 2 from level 0
+    # is a single `?level=1` request, not one rung at a time.
+    monkeypatch.setattr(MissionChiefClient, "get_building_detail", lambda self, bid: {"level": 0})
     monkeypatch.setattr(
-        MissionChiefClient, "get_building_detail", lambda self, bid: {"level": next(levels)}
+        MissionChiefClient, "get_expand_prices", lambda self, bid: {0: 10_000, 1: 60_000}
     )
-    monkeypatch.setattr(MissionChiefClient, "get_expand_prices", lambda self, bid: {0: 10_000, 1: 60_000})
     calls = []
 
     def fake_expand(self, bid, level):
         calls.append(level)
-        return ExpandResult(success=True, level=level, price=10_000, new_level=level + 1, response_status=302)
+        # Direct jump: clicking `?level=L-1` lands on level L.
+        return ExpandResult(success=True, level=level, price=60_000, new_level=level + 1, response_status=302)
 
     monkeypatch.setattr(MissionChiefClient, "expand_building", fake_expand)
 
     messages = apply_preset(client, db, 5558174, _preset(target_level=2))
 
-    assert calls == [0, 1]  # query param = current level, both times
-    assert "Already at level 2 (target 2)." in messages[-1]
+    assert calls == [1]  # one request straight to the target (param = target - 1)
+    assert "Expanded to level 2" in messages[-1]
+
+
+def test_expand_falls_back_to_looping_if_a_jump_lands_short(client, db, monkeypatch):
+    # If a single expand only advances one level (defensive fallback), the loop keeps going from
+    # where it actually landed rather than assuming the jump reached the target. _expand_to_level
+    # reads the starting level once and then trusts each result's verified new_level.
+    monkeypatch.setattr(MissionChiefClient, "get_building_detail", lambda self, bid: {"level": 0})
+    monkeypatch.setattr(
+        MissionChiefClient, "get_expand_prices", lambda self, bid: {0: 10_000, 1: 60_000, 2: 160_000}
+    )
+    reached = {"level": 0}
+    calls = []
+
+    def only_one_rung(self, bid, level):
+        calls.append(level)
+        reached["level"] += 1  # cap: advance a single level no matter which param was requested
+        return ExpandResult(
+            success=True, level=level, price=10_000, new_level=reached["level"], response_status=302
+        )
+
+    monkeypatch.setattr(MissionChiefClient, "expand_building", only_one_rung)
+
+    messages = apply_preset(client, db, 5558174, _preset(target_level=3))
+
+    assert reached["level"] == 3  # eventually reached the target
+    assert len(calls) == 3  # took three jumps because each only advanced one level
+    assert "Expanded to level 3" in messages[-1]
 
 
 def test_expand_to_level_stops_once_target_reached(client, db, monkeypatch):
@@ -84,16 +124,18 @@ def test_expand_to_level_stops_once_target_reached(client, db, monkeypatch):
     assert "Already at level 5 (target 5)." in messages[0]
 
 
-def test_expand_stops_if_target_unreachable_from_current_prices(client, db, monkeypatch):
+def test_expand_stops_if_no_forward_option_is_offered(client, db, monkeypatch):
+    # Nothing at or above the current level is offered (e.g. the station is maxed, so the expand
+    # page has no forward links) — don't buy anything, just report it can't reach the target.
     monkeypatch.setattr(MissionChiefClient, "get_building_detail", lambda self, bid: {"level": 3})
-    monkeypatch.setattr(MissionChiefClient, "get_expand_prices", lambda self, bid: {5: 10_000})  # no key "3"
+    monkeypatch.setattr(MissionChiefClient, "get_expand_prices", lambda self, bid: {})
     monkeypatch.setattr(
         MissionChiefClient, "expand_building",
         lambda self, bid, level: pytest.fail("should not be called"),
     )
 
     messages = apply_preset(client, db, 5558174, _preset(target_level=10))
-    assert "can't reach level 10" in messages[0]
+    assert "No expand option available to reach level 10" in messages[0]
 
 
 def test_expand_stops_on_unconfirmed_failure_rather_than_looping_forever(client, db, monkeypatch):

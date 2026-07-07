@@ -92,5 +92,8 @@ rlm_cache:
   cache_dir: ".rlm_cache"
 
 rate_limiting:
-  min_delay_seconds: 2
-  max_delay_seconds: 5
+  # Jittered pause between game requests. Kept small so a full station build-out (build + a
+  # single-request expand + service/hire + vehicles + crew) finishes in tens of seconds rather
+  # than minutes. Raise these if you'd rather trade speed for a gentler footprint on the site.
+  min_delay_seconds: 0.3
+  max_delay_seconds: 0.8
