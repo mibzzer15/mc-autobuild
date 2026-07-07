@@ -125,6 +125,10 @@ def create_app(
     # success/failure - otherwise a run that raised (session expired, RLM error, ...) just logs
     # to the server and looks to the user like "nothing happened". None until the first run.
     app.state.plan_generation_result = None
+    # Same pattern for "Run entire plan" (batch build + per-station preset application), which
+    # spends credits and can run for many minutes across dozens of rate-limited requests.
+    app.state.plan_run_in_progress = False
+    app.state.plan_run_result = None
 
     @app.exception_handler(NotAuthenticated)
     async def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
@@ -285,6 +289,149 @@ def create_app(
             target=_run_plan_generation_in_background, args=(client, config, existing_buildings), daemon=True
         ).start()
         return "started", "Plan generation started in the background — refresh this page in a bit to see the result."
+
+    def _run_plan_execution_in_background(
+        mc_client: MissionChiefClient, entries: list[dict], max_credits_per_run: int | None
+    ) -> None:
+        """Builds every pending plan entry in order, applying each station's preset inline right
+        after it's built. Deliberately aborts (rather than skipping ahead) on the first hard
+        problem - an unconfirmed build, an expired session, or the budget cap - so a partial run
+        stops cleanly instead of compounding errors, matching the project's safety rules."""
+        db = app.state.session_factory()
+        log: list[dict] = []
+        spent = 0
+        built = 0
+        aborted: str | None = None
+        try:
+            for entry in entries:
+                poi_id = entry["poi_id"]
+                name = entry["name"]
+                building_type = entry["building_type"]
+
+                # Another run (or a single-station build) may have built this in the meantime.
+                if has_completed_action(db, "build", poi_id):
+                    log.append({"name": name, "status": "skipped", "detail": "already built"})
+                    continue
+
+                # Budget gate against the LIVE price - MissionChief escalates each type's price as
+                # you build more, so the plan's snapshot estimate understates later stations.
+                if max_credits_per_run is not None:
+                    try:
+                        price = mc_client.get_building_prices().get(building_type)
+                    except SessionExpiredError as exc:
+                        aborted = f"Session expired: {exc}"
+                        break
+                    if price is not None and spent + price > max_credits_per_run:
+                        log.append({
+                            "name": name, "status": "budget_stopped",
+                            "detail": f"next station costs {price:,} credits, over the remaining budget",
+                        })
+                        aborted = f"Budget cap ({max_credits_per_run:,}) reached — stopping."
+                        break
+
+                try:
+                    result = mc_client.create_building(
+                        building_type=building_type, name=name,
+                        latitude=entry["latitude"], longitude=entry["longitude"],
+                    )
+                except SessionExpiredError as exc:
+                    aborted = f"Session expired while building {name!r}: {exc}"
+                    break
+                except Exception as exc:
+                    log.append({"name": name, "status": "failed", "detail": str(exc)})
+                    aborted = f"Error building {name!r}: {exc}"
+                    break
+
+                if not result.success:
+                    summary = summarize_html_for_log(result.response_text, max_chars=200)
+                    log.append({"name": name, "status": "failed", "detail": f"could not confirm build: {summary}"})
+                    aborted = f"Could not confirm {name!r} built — stopping to avoid compounding errors."
+                    break
+
+                spent += result.price
+                built += 1
+                record_completed_action(
+                    db, action_type="build", poi_id=poi_id, building_id=result.building["id"],
+                    building_type=building_type, name=name, cost=result.price,
+                )
+
+                # Apply the preset inline (this run is already sequential; no need for a nested
+                # thread). presets_in_progress is still flagged so the building page won't let a
+                # manual apply race this one.
+                preset = get_preset(db, building_type)
+                if preset is None:
+                    preset_summary = "no preset configured"
+                else:
+                    app.state.presets_in_progress.add(result.building["id"])
+                    try:
+                        msgs = apply_preset(mc_client, db, result.building["id"], preset)
+                        preset_summary = "; ".join(msgs)
+                    except SessionExpiredError as exc:
+                        preset_summary = f"session expired during preset: {exc}"
+                        log.append({"name": name, "status": "built", "detail": f"{result.price:,} credits · {preset_summary}"})
+                        aborted = f"Session expired applying {name!r}'s preset: {exc}"
+                        break
+                    except Exception as exc:
+                        logger.exception("Preset failed during plan run for building %s", result.building["id"])
+                        preset_summary = f"preset error: {exc}"
+                    finally:
+                        app.state.presets_in_progress.discard(result.building["id"])
+
+                log.append({"name": name, "status": "built", "detail": f"{result.price:,} credits · {preset_summary}"})
+
+            if aborted:
+                message = (
+                    f"Built {built} station(s) (spent {spent:,} credits), then stopped: {aborted}"
+                    if built else f"Stopped without building anything: {aborted}"
+                )
+            else:
+                message = f"Done — built {built} station(s), spent {spent:,} credits."
+            app.state.plan_run_result = {
+                "status": "error" if aborted else "success",
+                "message": message,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "log": log,
+            }
+        except Exception as exc:
+            logger.exception("Plan run crashed")
+            app.state.plan_run_result = {
+                "status": "error",
+                "message": f"Plan run crashed after {built} build(s): {type(exc).__name__}: {exc}",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "log": log,
+            }
+        finally:
+            db.close()
+            app.state.plan_run_in_progress = False
+
+    def start_plan_execution(request: Request) -> tuple[str, str]:
+        """Kicks off _run_plan_execution_in_background for every not-yet-built plan entry."""
+        if request.app.state.plan_run_in_progress:
+            return "already_running", "A plan run is already in progress."
+        plan_file = Path(request.app.state.plan_path)
+        if not plan_file.exists():
+            return "error", "No plan.json yet — generate a plan first."
+        data = json.loads(plan_file.read_text())
+        entries = data.get("to_build", [])
+        max_credits = (data.get("budget") or {}).get("max_credits_per_run")
+        try:
+            client = get_client(request)
+        except SessionExpiredError as exc:
+            return "error", f"Authentication failed: {exc}"
+        with db_session(request) as db:
+            pending = [e for e in entries if has_completed_action(db, "build", e["poi_id"]) is None]
+        if not pending:
+            return "error", "Nothing to build — every station in the plan is already built."
+
+        request.app.state.plan_run_in_progress = True
+        request.app.state.plan_run_result = None
+        threading.Thread(
+            target=_run_plan_execution_in_background, args=(client, pending, max_credits), daemon=True
+        ).start()
+        return "started", (
+            f"Building {len(pending)} station(s) in the background and applying presets — this can "
+            "take a while; refresh to see progress."
+        )
 
     # ---------------------------------------------------------------- auth
 
@@ -808,6 +955,8 @@ def create_app(
                     "entries": [], "plan_missing": True,
                     "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
                     "plan_generation_result": request.app.state.plan_generation_result,
+                    "plan_run_in_progress": request.app.state.plan_run_in_progress,
+                    "plan_run_result": request.app.state.plan_run_result,
                     **flash_context(request),
                 },
             )
@@ -861,6 +1010,8 @@ def create_app(
                 "map_data_json": _safe_json_for_script(map_data),
                 "plan_generation_in_progress": request.app.state.plan_generation_in_progress,
                 "plan_generation_result": request.app.state.plan_generation_result,
+                "plan_run_in_progress": request.app.state.plan_run_in_progress,
+                "plan_run_result": request.app.state.plan_run_result,
                 "diagnostics": diagnostics,
                 **flash_context(request),
             },
@@ -869,6 +1020,37 @@ def create_app(
     @app.post("/plan/generate")
     def plan_generate_route(request: Request, _: None = Depends(require_login)):
         status, message = start_plan_generation(request)
+        return flash_redirect("/plan", message, "success" if status == "started" else "error")
+
+    @app.get("/plan/run/confirm", response_class=HTMLResponse)
+    def plan_run_confirm(request: Request, _: None = Depends(require_login)):
+        plan_file = Path(request.app.state.plan_path)
+        if not plan_file.exists():
+            return flash_redirect("/plan", "No plan.json yet — generate a plan first.", "error")
+        data = json.loads(plan_file.read_text())
+        entries = data.get("to_build", [])
+        with db_session(request) as db:
+            pending = [e for e in entries if has_completed_action(db, "build", e["poi_id"]) is None]
+            preset_types = {p.building_type for p in list_presets(db)}
+        # Count how many pending stations have a preset, so the confirm page can warn if a lot of
+        # them will build "bare" (level 1, no vehicles) because no preset covers their type.
+        with_preset = sum(1 for e in pending if e["building_type"] in preset_types)
+        return templates.TemplateResponse(
+            request,
+            "plan_run_confirm.html",
+            {
+                "pending": pending,
+                "count": len(pending),
+                "total_estimated_cost": sum(e.get("estimated_cost") or 0 for e in pending),
+                "max_credits_per_run": (data.get("budget") or {}).get("max_credits_per_run"),
+                "with_preset": with_preset,
+                "without_preset": len(pending) - with_preset,
+            },
+        )
+
+    @app.post("/plan/run")
+    def plan_run_execute(request: Request, _: None = Depends(require_login)):
+        status, message = start_plan_execution(request)
         return flash_redirect("/plan", message, "success" if status == "started" else "error")
 
     @app.get("/plan/build/confirm", response_class=HTMLResponse)
@@ -911,10 +1093,16 @@ def create_app(
                 )
             status, message = start_preset_application(request, result.building["id"], entry["building_type"])
             if status == "started":
-                preset_note = " Preset application started in the background."
+                preset_note = " Preset application started in the background — see this station's page for progress."
             elif status == "error":
                 preset_note = f" (Could not start its preset: {message})"
-            # "no_preset"/"already_running" need no note - nothing configured, or nothing to add.
+            elif status == "no_preset":
+                # Surface this explicitly - a silent no-op here is exactly why a freshly-built
+                # station looks like the preset "did nothing" (no expand, no vehicles).
+                preset_note = (
+                    f" No preset is configured for this building type ({entry['building_type']}), so "
+                    "nothing else was applied — set one on the Presets page to auto-expand/buy vehicles."
+                )
 
         return report_action_result(
             request, "/plan", "build", result,

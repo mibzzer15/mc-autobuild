@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Confirm run entire plan — mc-autobuilder{% endblock %}
+{% block content %}
+<h1>Run entire plan</h1>
+
+{% if count == 0 %}
+<p>Nothing to build — every station in the plan is already built. <a href="/plan" class="btn">Back to plan</a></p>
+{% else %}
+<p>
+  This builds <strong>all {{ count }} not-yet-built station(s)</strong> in the current plan, one
+  after another, and applies each station's preset (expand, service state, hiring, vehicles + crew)
+  right after it's built.
+</p>
+<p>
+  <strong>
+    This spends real credits — roughly
+    {{ "{:,}".format(total_estimated_cost) }} for the builds alone
+  </strong>
+  (plus expansions and vehicles from presets, which can be much more). Prices are re-checked live
+  before each build, and MissionChief escalates them as you build more, so the real total will be
+  higher than the estimate above.
+</p>
+
+{% if max_credits_per_run is not none %}
+<p class="muted">
+  The run stops once cumulative build spend would exceed your
+  <strong>max_credits_per_run</strong> of {{ "{:,}".format(max_credits_per_run) }} credits.
+</p>
+{% else %}
+<p class="flash flash-error">
+  No <strong>max_credits_per_run</strong> budget is set, so there's no spend cap on this run — it
+  will keep building until every station is done or something fails. Set a budget in
+  <a href="/config">Config</a> first if you want a hard ceiling.
+</p>
+{% endif %}
+
+{% if without_preset > 0 %}
+<p class="muted">
+  {{ with_preset }} of {{ count }} station(s) have a preset; the other {{ without_preset }} will
+  build "bare" (level 1, no vehicles) because no preset covers their building type. Configure
+  presets on the <a href="/presets">Presets</a> page to auto-build them out.
+</p>
+{% endif %}
+
+<p class="muted">
+  It aborts on the first unconfirmed build, expired session, or budget breach — a partial run stops
+  cleanly rather than pushing on. It runs in the background; refresh the Plan page to watch progress.
+</p>
+
+<form method="post" action="/plan/run">
+  <button type="submit" class="btn btn-primary">Yes, build all {{ count }} & apply presets</button>
+  <a href="/plan" class="btn">Cancel</a>
+</form>
+{% endif %}
+{% endblock %}

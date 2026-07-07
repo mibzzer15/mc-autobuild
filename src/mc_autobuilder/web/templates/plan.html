@@ -42,6 +42,44 @@
   · Total estimated cost: {{ "{:,}".format(total_estimated_cost) }} credits
 </p>
 
+<div class="card">
+  <h2>Run entire plan</h2>
+  <p class="muted">
+    Builds every not-yet-built station above in one go and applies each station's preset (expand,
+    service state, hiring, vehicles + crew) right after. Spends real credits — you'll get a
+    confirmation screen with the estimated total first.
+  </p>
+  {% if plan_run_in_progress %}
+  <p><strong>Running now in the background — refresh this page to see progress.</strong></p>
+  {% else %}
+  {% if plan_run_result %}
+  <p class="flash flash-{{ 'success' if plan_run_result.status == 'success' else 'error' }}">
+    {{ plan_run_result.message }}
+    <span class="muted">({{ plan_run_result.finished_at }})</span>
+  </p>
+  {% if plan_run_result.log %}
+  <table class="sortable">
+    <thead><tr><th>Station</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for row in plan_run_result.log %}
+      <tr>
+        <td>{{ row.name }}</td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+  {% if entries|length > 0 %}
+  <a href="/plan/run/confirm" class="btn btn-primary">Run entire plan…</a>
+  {% else %}
+  <p class="muted">Nothing left to build.</p>
+  {% endif %}
+  {% endif %}
+</div>
+
 {% if diagnostics %}
 <div class="card">
   <h2>Why this plan?</h2>

@@ -464,6 +464,151 @@ def test_plan_build_auto_applies_preset_when_one_is_configured(client, monkeypat
     assert _wait_for(lambda: len(get_preset_log(session_factory(), 555)) > 0)
 
 
+def test_plan_build_reports_when_no_preset_is_configured(client, monkeypatch, tmp_path):
+    _login(client)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "to_build": [
+                    {
+                        "poi_id": 9, "poi_name": "Test", "building_type": 7,
+                        "building_type_name": "Fire station", "name": "Bare FS",
+                        "latitude": 1.0, "longitude": 2.0, "estimated_cost": 100_000,
+                    }
+                ]
+            }
+        )
+    )
+    client.app.state.plan_path = str(plan_path)
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: BuildResult(True, {"id": 700}, 100_000, 200),
+    )
+
+    resp = client.post("/plan/build", data={"poi_id": "9"}, follow_redirects=False)
+    # No preset for type 7 - the message must say so rather than silently doing nothing.
+    assert "No preset is configured" in unquote(resp.headers["location"])
+
+
+def _two_station_plan(building_type=5, cost=100_000, budget=None):
+    plan = {
+        "to_build": [
+            {
+                "poi_id": 1, "poi_name": "A", "building_type": building_type,
+                "building_type_name": "Police station", "name": "Station A",
+                "latitude": 1.0, "longitude": 2.0, "estimated_cost": cost,
+            },
+            {
+                "poi_id": 2, "poi_name": "B", "building_type": building_type,
+                "building_type_name": "Police station", "name": "Station B",
+                "latitude": 3.0, "longitude": 4.0, "estimated_cost": cost,
+            },
+        ]
+    }
+    if budget is not None:
+        plan["budget"] = {"max_credits_per_run": budget}
+    return plan
+
+
+def test_plan_run_builds_all_pending_and_applies_each_preset(client, monkeypatch, tmp_path):
+    _login(client)
+    # Hire-only preset for type 5, so apply_preset does something observable per station.
+    client.post("/presets/5", data={"hire_days": "1", "vehicle_type_id": [""], "vehicle_count": [""]})
+
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(_two_station_plan()))
+    client.app.state.plan_path = str(plan_path)
+
+    built_ids = iter([101, 102])
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: BuildResult(True, {"id": next(built_ids)}, 100_000, 200),
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_detail",
+        lambda self, bid: {"building_type": 5, "hiring_phase": 0},
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.hire", lambda self, bid, days: HireResult(True, days, 302)
+    )
+
+    resp = client.post("/plan/run", follow_redirects=False)
+    assert "Building 2 station(s)" in unquote(resp.headers["location"])
+
+    assert _wait_for(lambda: client.app.state.plan_run_result is not None)
+    result = client.app.state.plan_run_result
+    assert result["status"] == "success"
+    assert "built 2 station(s)" in result["message"]
+    # Both stations' presets ran (hire logged for each new building id).
+    sf = client.app.state.session_factory
+    assert len(get_preset_log(sf(), 101)) > 0
+    assert len(get_preset_log(sf(), 102)) > 0
+
+    # The plan page now shows 0 pending and the per-station run log.
+    page = client.get("/plan").text
+    assert "Station A" in page and "Station B" in page
+
+
+def test_plan_run_stops_at_budget_cap(client, monkeypatch, tmp_path):
+    _login(client)
+    plan_path = tmp_path / "plan.json"
+    # Budget only fits one 100k station.
+    plan_path.write_text(json.dumps(_two_station_plan(budget=150_000)))
+    client.app.state.plan_path = str(plan_path)
+
+    built_ids = iter([201, 202])
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_prices", lambda self: {5: 100_000}
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: BuildResult(True, {"id": next(built_ids)}, 100_000, 200),
+    )
+
+    client.post("/plan/run", follow_redirects=False)
+    assert _wait_for(lambda: client.app.state.plan_run_result is not None)
+    result = client.app.state.plan_run_result
+    assert result["status"] == "error"
+    assert "Budget cap" in result["message"]
+    assert "Built 1 station(s)" in result["message"]
+    # Exactly one station recorded as built.
+    statuses = [row["status"] for row in result["log"]]
+    assert statuses.count("built") == 1
+    assert "budget_stopped" in statuses
+
+
+def test_plan_run_aborts_on_unconfirmed_build(client, monkeypatch, tmp_path):
+    _login(client)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(_two_station_plan()))
+    client.app.state.plan_path = str(plan_path)
+
+    # First build fails to confirm -> abort before touching the second.
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: BuildResult(False, None, 100_000, 200, "<html>error</html>"),
+    )
+
+    client.post("/plan/run", follow_redirects=False)
+    assert _wait_for(lambda: client.app.state.plan_run_result is not None)
+    result = client.app.state.plan_run_result
+    assert result["status"] == "error"
+    assert "without building anything" in result["message"]
+    assert [row["status"] for row in result["log"]] == ["failed"]
+
+
+def test_plan_run_confirm_page_warns_without_budget(client, tmp_path):
+    _login(client)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(_two_station_plan()))  # no budget key
+    client.app.state.plan_path = str(plan_path)
+
+    page = client.get("/plan/run/confirm").text
+    assert "no spend cap on this run" in page
+    assert "build all 2" in page.lower()
+
+
 def test_config_edit_shows_helpful_message_when_missing(client):
     _login(client)
     resp = client.get("/config")

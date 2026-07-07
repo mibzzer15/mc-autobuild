@@ -167,6 +167,28 @@ background (RLM fetches across several regions plus a live price check can take 
 especially on a cold cache) — refresh the page to see the result once it finishes. The CLI and
 dashboard share the exact same plan-generation code, so results are identical either way.
 
+If the plan comes back with **0 stations to build**, the Plan page's "Why this plan?" card
+explains where the candidates went: 0 RLM candidates points at a bad region bbox or `poi_type`
+mapping, while lots of candidates but 0 to build points at dedupe/cap/budget (most often
+everything got rejected by your `max_credits_per_run` cap — the card shows the cap next to the
+cheapest rejected station's cost so you know what to raise it to).
+
+### Running a whole plan from the dashboard
+
+Once a plan looks right, the **Plan** page's "Run entire plan" button builds every not-yet-built
+station in one go and applies each station's preset (expand, service state, hiring, vehicles +
+crew) immediately after it's built. You get a confirmation screen first with the estimated total
+spend and a warning if any stations lack a preset (they'd build "bare" at level 1). The run
+happens in the background and **aborts on the first hard problem** — an unconfirmed build, an
+expired session, or reaching your `max_credits_per_run` budget — so a partial run stops cleanly
+instead of compounding errors. Refresh the Plan page to watch a per-station result log build up.
+Everything is idempotent: already-built stations are skipped, so it's always safe to re-run.
+
+Building a single station (the per-row "Build" button) works the same way — it applies that
+station's preset right after building, and now tells you explicitly when no preset is configured
+for that building type (which is why a freshly-built station would otherwise sit at level 1 with
+no vehicles).
+
 ### Map and sortable tables
 
 The **Plan** page shows every pending station on a map (green markers) alongside your already-
