@@ -1,8 +1,11 @@
+import sqlite3
+
 from mc_autobuilder.models import (
     Building,
     get_session_factory,
     has_completed_action,
     init_db,
+    list_presets,
     record_completed_action,
     upsert_buildings,
 )
@@ -82,3 +85,34 @@ def test_record_and_check_completed_action():
         # A different poi_id, or a different action_type, isn't the same completed action.
         assert has_completed_action(db, "build", poi_id=43) is None
         assert has_completed_action(db, "expand", poi_id=42) is None
+
+
+def test_init_db_migrates_old_station_presets_schema_without_a_column_error(tmp_path):
+    # Regression test: a db created before target_level replaced the old max_level column used
+    # to raise "no such column: station_presets.target_level" on every preset query, since
+    # create_all() only creates missing tables - it never alters an existing one.
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE station_presets (
+          building_type INTEGER PRIMARY KEY,
+          max_level BOOLEAN NOT NULL,
+          manage_service BOOLEAN NOT NULL,
+          target_enabled BOOLEAN NOT NULL,
+          hire_days INTEGER,
+          vehicles_json TEXT NOT NULL,
+          updated_at DATETIME NOT NULL
+        )
+        """
+    )
+    conn.execute("INSERT INTO station_presets VALUES (0, 1, 0, 1, NULL, '[]', '2026-01-01')")
+    conn.commit()
+    conn.close()
+
+    engine = init_db(str(db_path))
+    db = get_session_factory(engine)()
+    try:
+        assert list_presets(db) == []  # old row is gone, but querying no longer errors
+    finally:
+        db.close()

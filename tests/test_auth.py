@@ -10,6 +10,8 @@ from mc_autobuilder.auth import (
     _storage_state_to_jar,
     check_session_alive,
     extract_csrf_token,
+    load_config,
+    update_env_file,
 )
 
 
@@ -174,3 +176,44 @@ def test_check_session_alive_detects_login_page_beyond_first_5000_chars():
     html = f"<html><body>{padding}<a href=\"/users/sign_in\">Login</a></body></html>"
     with pytest.raises(SessionExpiredError):
         check_session_alive(FakeResponse(200, html))
+
+
+def test_update_env_file_replaces_existing_key_in_place(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text("MC_AUTH_MODE=cookie\nMC_USERNAME=old\nDASHBOARD_PASSWORD=secret123\n")
+
+    update_env_file(path, {"MC_USERNAME": "new"})
+
+    text = path.read_text()
+    assert "MC_USERNAME=new" in text
+    assert "MC_AUTH_MODE=cookie" in text
+    # Preserves a key it knows nothing about, in the same file.
+    assert "DASHBOARD_PASSWORD=secret123" in text
+
+
+def test_update_env_file_appends_missing_key(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text("MC_AUTH_MODE=cookie\n")
+
+    update_env_file(path, {"MC_PASSWORD": "hunter2"})
+
+    assert "MC_PASSWORD=hunter2" in path.read_text()
+
+
+def test_update_env_file_omitted_keys_are_left_untouched(tmp_path):
+    # Simulates a form submission where the password field was left blank (meaning "keep the
+    # current value") - the caller should simply omit MC_PASSWORD from `updates` entirely.
+    path = tmp_path / ".env"
+    path.write_text("MC_PASSWORD=hunter2\nMC_USERNAME=alice\n")
+
+    update_env_file(path, {"MC_USERNAME": "bob"})
+
+    text = path.read_text()
+    assert "MC_PASSWORD=hunter2" in text
+    assert "MC_USERNAME=bob" in text
+
+
+def test_update_env_file_creates_file_if_missing(tmp_path):
+    path = tmp_path / ".env"
+    update_env_file(path, {"MC_USERNAME": "alice"})
+    assert load_config(path)["MC_USERNAME"] == "alice"

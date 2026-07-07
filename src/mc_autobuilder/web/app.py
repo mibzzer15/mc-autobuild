@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from ..auth import AuthConfig, SessionExpiredError, build_session
+from ..auth import AuthConfig, SessionExpiredError, build_session, load_config, update_env_file
 from ..config import load_raw_config, save_raw_config
 from ..constants import BUILDING_TYPES
 from ..mc_client import MissionChiefClient, summarize_html_for_log
@@ -105,6 +105,7 @@ def create_app(
 
     app.state.web_config = web_config
     app.state.auth_config = auth_config
+    app.state.env_file = env_file
     app.state.session_factory = get_session_factory(engine)
     app.state.plan_path = plan_path
     app.state.config_file = config_file
@@ -575,6 +576,8 @@ def create_app(
         rlm_cache = raw.get("rlm_cache", {})
         rate_limiting = raw.get("rate_limiting", {})
 
+        env_values = load_config(request.app.state.env_file)
+
         return templates.TemplateResponse(
             request,
             "config_edit.html",
@@ -592,6 +595,11 @@ def create_app(
                 "rlm_cache_dir": rlm_cache.get("cache_dir", ".rlm_cache"),
                 "rate_limit_min_delay": rate_limiting.get("min_delay_seconds", 2),
                 "rate_limit_max_delay": rate_limiting.get("max_delay_seconds", 5),
+                "mc_auth_mode": env_values.get("MC_AUTH_MODE", "cookie"),
+                "mc_username": env_values.get("MC_USERNAME", ""),
+                "mc_password_set": bool(env_values.get("MC_PASSWORD")),
+                "mc_session_cookie_set": bool(env_values.get("MC_SESSION_COOKIE")),
+                "mc_base_url": env_values.get("MC_BASE_URL", "https://www.missionchief.com"),
                 **flash_context(request),
             },
         )
@@ -661,6 +669,28 @@ def create_app(
             },
         }
         save_raw_config(request.app.state.config_file, data)
+
+        # MissionChief account settings live in .env, not config.yaml (see auth.py) - blank
+        # fields mean "keep the current value", so they're simply omitted from the update rather
+        # than written as empty (which would wipe out a saved password/session cookie).
+        env_updates = {}
+        if form.get("mc_auth_mode"):
+            env_updates["MC_AUTH_MODE"] = form["mc_auth_mode"]
+        if (form.get("mc_username") or "").strip():
+            env_updates["MC_USERNAME"] = form["mc_username"].strip()
+        if (form.get("mc_password") or "").strip():
+            env_updates["MC_PASSWORD"] = form["mc_password"].strip()
+        if (form.get("mc_session_cookie") or "").strip():
+            env_updates["MC_SESSION_COOKIE"] = form["mc_session_cookie"].strip()
+        if (form.get("mc_base_url") or "").strip():
+            env_updates["MC_BASE_URL"] = form["mc_base_url"].strip()
+        if env_updates:
+            update_env_file(request.app.state.env_file, env_updates)
+            # Force the next request to rebuild the session/client with the new credentials,
+            # instead of continuing to use whatever was cached at server startup.
+            request.app.state.auth_config = AuthConfig.from_env(request.app.state.env_file)
+            request.app.state.mc_client = None
+
         return flash_redirect("/config", "Saved config.yaml.")
 
     # ---------------------------------------------------------------- plan

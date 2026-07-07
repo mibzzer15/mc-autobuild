@@ -518,3 +518,55 @@ def test_config_save_and_reload_round_trips(client, tmp_path):
     resp = client.get("/config")
     assert "Bay Area" in resp.text
     assert 'value="38.0"' in resp.text
+
+
+def test_config_page_shows_account_fields_without_leaking_secrets(client, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "MC_AUTH_MODE=credentials\nMC_USERNAME=alice\nMC_PASSWORD=hunter2\n"
+        "MC_SESSION_COOKIE=session_id=abc\nDASHBOARD_PASSWORD=testpass123\n"
+    )
+    client.app.state.env_file = str(env_path)
+    _login(client)
+
+    resp = client.get("/config")
+
+    assert "alice" in resp.text  # username is shown
+    assert "hunter2" not in resp.text  # password is never echoed back
+    assert "session_id=abc" not in resp.text  # neither is the session cookie
+    assert "currently set" in resp.text
+
+
+def test_config_save_updates_mc_credentials_without_touching_dashboard_password(client, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("MC_AUTH_MODE=cookie\nDASHBOARD_PASSWORD=testpass123\n")
+    client.app.state.env_file = str(env_path)
+    _login(client)
+
+    resp = client.post(
+        "/config",
+        data={"game_world": "US", "mc_auth_mode": "credentials", "mc_username": "bob", "mc_password": "hunter2"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    from mc_autobuilder.auth import load_config
+
+    values = load_config(env_path)
+    assert values["MC_AUTH_MODE"] == "credentials"
+    assert values["MC_USERNAME"] == "bob"
+    assert values["MC_PASSWORD"] == "hunter2"
+    assert values["DASHBOARD_PASSWORD"] == "testpass123"  # untouched
+
+
+def test_config_save_with_blank_password_keeps_existing_value(client, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("MC_AUTH_MODE=cookie\nMC_PASSWORD=original\nDASHBOARD_PASSWORD=testpass123\n")
+    client.app.state.env_file = str(env_path)
+    _login(client)
+
+    client.post("/config", data={"game_world": "US", "mc_auth_mode": "credentials"}, follow_redirects=False)
+
+    from mc_autobuilder.auth import load_config
+
+    assert load_config(env_path)["MC_PASSWORD"] == "original"

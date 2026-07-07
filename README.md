@@ -151,6 +151,12 @@ limiting — all from the browser instead of hand-editing YAML. Saving **overwri
 (comments in an existing hand-edited `config.yaml` won't be preserved) but keeps the exact same
 schema, so the CLI and dashboard stay interchangeable.
 
+The same page also has a **MissionChief account** section for your login credentials (auth mode,
+username, password, session cookie, server base URL) — these actually live in `.env`, not
+`config.yaml`, since that's what the CLI already reads. Password/session-cookie fields are never
+echoed back once set (leave them blank to keep the current value); saving them takes effect
+immediately, no server restart needed.
+
 ### Map and sortable tables
 
 The **Plan** page shows every pending station on a map (green markers) alongside your already-

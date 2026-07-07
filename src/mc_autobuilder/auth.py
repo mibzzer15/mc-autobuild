@@ -62,6 +62,31 @@ def load_config(env_path: str | Path = ".env") -> dict[str, str]:
     return values
 
 
+def update_env_file(env_path: str | Path, updates: dict[str, str]) -> None:
+    """Updates specific KEY=VALUE lines in .env, preserving every other line untouched -
+    including keys this function knows nothing about, like DASHBOARD_PASSWORD/
+    DASHBOARD_SECRET_KEY, which live in the same file (see web_config.py). Only pass keys you
+    actually want to change: e.g. the web dashboard's account-settings form omits MC_PASSWORD
+    entirely when its field is left blank, so an empty submission doesn't wipe out a saved
+    credential."""
+    path = Path(env_path)
+    lines = path.read_text().splitlines() if path.exists() else []
+    remaining = dict(updates)
+
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        key = stripped.split("=", 1)[0].strip() if "=" in stripped and not stripped.startswith("#") else None
+        if key in remaining:
+            new_lines.append(f"{key}={remaining.pop(key)}")
+        else:
+            new_lines.append(line)
+    for key, value in remaining.items():
+        new_lines.append(f"{key}={value}")
+
+    path.write_text("\n".join(new_lines) + "\n")
+
+
 @dataclass
 class AuthConfig:
     base_url: str

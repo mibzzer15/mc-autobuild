@@ -13,11 +13,46 @@
 
 <form method="post" action="/config">
   <div class="card">
-    <h2>MissionChief server</h2>
+    <h2>MissionChief server (RLM lookups)</h2>
     <label for="game_world">game_world (RLM code, e.g. US)</label><br>
     <input type="text" id="game_world" name="game_world" value="{{ game_world }}" required><br><br>
     <label for="base_url">base_url</label><br>
     <input type="text" id="base_url" name="base_url" value="{{ base_url }}" style="width:24rem">
+    <p class="muted">
+      Used to look up your server's building_type ids from RLM (docs/rlm-api.md). Doesn't affect
+      which server your account's requests go to — that's the "Account" section below.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>MissionChief account</h2>
+    <p class="muted">
+      Stored in <code>.env</code>, not <code>config.yaml</code> — separate from your dashboard
+      login. Leave password/session cookie blank to keep the current saved value; they're never
+      shown back here once set.
+    </p>
+    <label for="mc_auth_mode">Auth mode</label><br>
+    <select id="mc_auth_mode" name="mc_auth_mode">
+      <option value="cookie" {{ "selected" if mc_auth_mode == "cookie" }}>cookie</option>
+      <option value="credentials" {{ "selected" if mc_auth_mode == "credentials" }}>credentials</option>
+      <option value="playwright" {{ "selected" if mc_auth_mode == "playwright" }}>playwright</option>
+    </select><br><br>
+
+    <label for="mc_username">Username (credentials mode)</label><br>
+    <input type="text" id="mc_username" name="mc_username" value="{{ mc_username }}" style="width:20rem"><br><br>
+
+    <label for="mc_password">Password (credentials mode)</label><br>
+    <input type="password" id="mc_password" name="mc_password"
+           placeholder="{{ '(currently set — leave blank to keep it)' if mc_password_set else '(not set)' }}"
+           style="width:20rem"><br><br>
+
+    <label for="mc_session_cookie">Session cookie (cookie mode)</label><br>
+    <input type="password" id="mc_session_cookie" name="mc_session_cookie"
+           placeholder="{{ '(currently set — leave blank to keep it)' if mc_session_cookie_set else '(not set)' }}"
+           style="width:32rem"><br><br>
+
+    <label for="mc_base_url">Server base_url (used for actual requests)</label><br>
+    <input type="text" id="mc_base_url" name="mc_base_url" value="{{ mc_base_url }}" style="width:24rem">
   </div>
 
   <div class="card">

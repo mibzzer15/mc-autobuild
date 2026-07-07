@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
+
+logger = logging.getLogger("mc_autobuilder.models")
 
 Base = declarative_base()
 
@@ -90,8 +93,34 @@ def get_engine(db_path: str) -> Engine:
     return create_engine(f"sqlite:///{db_path}")
 
 
+def _migrate_schema(engine: Engine) -> None:
+    """Narrow, targeted fixups for schema changes made after a table already existed in the
+    wild, since this project doesn't have a full migration framework (Alembic) yet. Each fixup
+    logs what it did - never applied silently.
+
+    station_presets.max_level -> target_level: the preset feature shipped, then quickly changed
+    "expand to max" (a bool) into "expand to a specific level" (an int) before it saw real use.
+    There's no sensible automatic conversion from a bool to a target level, so an old-schema
+    table is dropped and recreated empty rather than left to raise an opaque
+    "no such column" error on every preset query.
+    """
+    inspector = inspect(engine)
+    if "station_presets" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("station_presets")}
+    if "max_level" in columns and "target_level" not in columns:
+        logger.warning(
+            "station_presets has the old pre-target_level schema (max_level column) - "
+            "recreating it empty, since a boolean 'expand to max' setting can't be automatically "
+            "converted into a specific target level. Re-enter any presets you'd already configured."
+        )
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE station_presets"))
+
+
 def init_db(db_path: str) -> Engine:
     engine = get_engine(db_path)
+    _migrate_schema(engine)
     Base.metadata.create_all(engine)
     return engine
 
