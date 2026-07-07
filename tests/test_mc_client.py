@@ -7,7 +7,11 @@ from mc_autobuilder.mc_client import (
     MissionChiefClient,
     parse_building_prices,
     parse_credits_balance,
+    parse_expand_prices,
+    parse_hire_day_options,
     parse_new_building_form,
+    parse_personnel_roster,
+    parse_vehicle_purchase_options,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -217,3 +221,194 @@ def test_get_credits_balance_reads_creditsupdate_via_plain_get_not_ajax_request(
     method, url, kwargs = session.calls[0]
     assert method == "GET"
     assert "headers" not in kwargs or "X-Requested-With" not in kwargs.get("headers", {})
+
+
+# Trimmed excerpts of real captured pages (2026-07 HAR, docs/missionchief-api.md's Phase 5 section).
+
+EXPAND_HTML = """
+<a class="btn btn-success disable_after_click " href="/buildings/5558174/expand_do/credits?level=0">Expand (10,000 Credits)</a>
+<a class="btn btn-success disable_after_click" data-confirm="..." href="/buildings/5558174/expand_do/coins?level=0">Expand (25 Coins)</a>
+<a class="btn btn-success disable_after_click " href="/buildings/5558174/expand_do/credits?level=1">Expand (60,000 Credits)</a>
+<a class="btn btn-success disable_after_click" data-confirm="..." href="/buildings/5558174/expand_do/coins?level=1">Expand (45 Coins)</a>
+"""
+
+VEHICLES_NEW_HTML = """
+<div class="col-sm-3">
+  <div class="vehicle_type well ">
+    <h3>Type 1 fire engine</h3>
+    Max. Crew: 6<br>
+    <a class="btn btn-success disable_after_click buy-vehicle-btn " data-confirm="..." href="/buildings/5558174/vehicle/5558174/0/coins?building=5558174&amp;return_tab=fire_engine">25 Coins</a>
+    <a class="btn btn-success disable_after_click buy-vehicle-btn " href="/buildings/5558174/vehicle/5558174/0/credits?building=5558174&amp;return_tab=fire_engine">5,000 Credits</a>
+  </div>
+</div>
+"""
+
+HIRE_HTML = """
+<a class="btn btn-success" data-confirm="..." href="/buildings/5558174/hire_do/coins">Recruit now (5 coins)</a>
+<a class="btn btn-default" href="/buildings/5558174/hire_do/1">Recruit 1 day</a>
+<a class="btn btn-default" href="/buildings/5558174/hire_do/2">Recruit 2 days</a>
+<a class="btn btn-default" href="/buildings/5558174/hire_do/3">Recruit 3 days</a>
+"""
+
+PERSONALS_HTML = """
+<table class="table table-striped" id="personal_table">
+  <thead><tr><th></th><th>Name</th><th>Education</th><th>Assigned to</th><th>Status</th><th>Options</th></tr></thead>
+  <tbody>
+    <tr data-filterable-by="[]">
+      <td><input type="checkbox" class="personal-delete-checkbox" value="135847194"></td>
+      <td>Paul G.</td>
+      <td></td>
+      <td>Type 1 fire engine</td>
+      <td><span class="label label-success"><i>Available</i></span></td>
+      <td></td>
+    </tr>
+    <tr data-filterable-by="[]">
+      <td><input type="checkbox" class="personal-delete-checkbox" value="135847189"></td>
+      <td>Owen A.</td>
+      <td></td>
+      <td></td>
+      <td><span class="label label-success"><i>Available</i></span></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+"""
+
+
+def test_parse_expand_prices_from_real_captured_page():
+    prices = parse_expand_prices(EXPAND_HTML)
+    assert prices == {0: 10_000, 1: 60_000}
+
+
+def test_parse_vehicle_purchase_options_from_real_captured_page():
+    options = parse_vehicle_purchase_options(VEHICLES_NEW_HTML)
+    assert options[0].name == "Type 1 fire engine"
+    assert options[0].price_credits == 5_000
+    assert options[0].return_tab == "fire_engine"
+
+
+def test_parse_hire_day_options_excludes_cancel_and_coins_links():
+    assert parse_hire_day_options(HIRE_HTML) == [1, 2, 3]
+
+
+def test_parse_personnel_roster_from_real_captured_page():
+    roster = parse_personnel_roster(PERSONALS_HTML)
+    assert len(roster) == 2
+    assert roster[0].personal_id == 135847194
+    assert roster[0].name == "Paul G."
+    assert roster[0].assigned_to == "Type 1 fire engine"
+    assert roster[1].assigned_to is None  # unassigned
+
+
+BUILDING_DETAIL = {"id": 5558174, "level": 0, "enabled": True, "hiring_phase": 0}
+
+
+def test_expand_building_verified_by_level_increasing():
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, text=EXPAND_HTML),  # GET expand
+            FakeMCResponse(200, json_data=BUILDING_DETAIL),  # before
+            FakeMCResponse(302, text=""),  # GET expand_do
+            FakeMCResponse(200, json_data={**BUILDING_DETAIL, "level": 1}),  # after
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.expand_building(5558174, level=0)
+
+    assert result.success is True
+    assert result.price == 10_000
+    assert result.new_level == 1
+    # Regression guard: expand_do is a plain link, confirmed to carry no AJAX/CSRF headers.
+    method, url, kwargs = session.calls[2]
+    assert "X-Requested-With" not in kwargs.get("headers", {})
+    assert kwargs["allow_redirects"] is False
+
+
+def test_toggle_service_verified_by_enabled_flipping():
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, json_data=BUILDING_DETAIL),  # before (enabled=True)
+            FakeMCResponse(302, text=""),  # GET active
+            FakeMCResponse(200, json_data={**BUILDING_DETAIL, "enabled": False}),  # after
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.toggle_service(5558174)
+
+    assert result.success is True
+    assert result.enabled is False
+
+
+VEHICLES_LIST = [{"id": 5579596, "building_id": 5558174, "assigned_personnel_count": 0}]
+
+
+def test_buy_vehicle_verified_by_diffing_vehicles_list():
+    new_vehicle = {"id": 9999, "building_id": 5558174, "assigned_personnel_count": 0}
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, text=VEHICLES_NEW_HTML),  # GET vehicles/new
+            FakeMCResponse(200, json_data=VEHICLES_LIST),  # before
+            FakeMCResponse(302, text=""),  # GET vehicle/.../credits
+            FakeMCResponse(200, json_data=[*VEHICLES_LIST, new_vehicle]),  # after
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.buy_vehicle(5558174, vehicle_type_id=0)
+
+    assert result.success is True
+    assert result.vehicle == new_vehicle
+    assert result.price == 5_000
+
+
+def test_hire_verified_by_hiring_phase_changing():
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, text=HIRE_HTML),  # GET hire
+            FakeMCResponse(200, json_data=BUILDING_DETAIL),  # before (hiring_phase=0)
+            FakeMCResponse(302, text=""),  # GET hire_do/1
+            FakeMCResponse(200, json_data={**BUILDING_DETAIL, "hiring_phase": 1}),  # after
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.hire(5558174, days=1)
+
+    assert result.success is True
+    assert result.hiring_phase == 1
+
+
+def test_hire_rejects_day_option_not_offered():
+    session = FakeMCSession([FakeMCResponse(200, text=HIRE_HTML)])
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    with pytest.raises(ValueError, match="No 7-day hiring option"):
+        client.hire(5558174, days=7)
+
+
+def test_assign_personnel_verified_by_assigned_personnel_count_changing():
+    vehicle = {"id": 14577420, "building_id": 5558174, "assigned_personnel_count": 2}
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, json_data=[vehicle]),  # before
+            FakeMCResponse(200, text="<td>Paul G.</td>"),  # POST zuweisungDo
+            FakeMCResponse(200, json_data=[{**vehicle, "assigned_personnel_count": 3}]),  # after
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.assign_personnel(vehicle_id=14577420, personal_id=135847194)
+
+    assert result.success is True
+    assert result.assigned_personnel_count == 3
+    # Regression guard: unlike expand/active/vehicle-purchase, zuweisungDo IS a confirmed AJAX call.
+    method, url, kwargs = session.calls[1]
+    assert kwargs["headers"]["X-Requested-With"] == "XMLHttpRequest"

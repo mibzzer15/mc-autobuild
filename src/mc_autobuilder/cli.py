@@ -109,6 +109,55 @@ def sync(env_file: str = ".env", db_path: str = "mc_autobuilder.db") -> None:
     typer.echo(f"Full log: {log_path}")
 
 
+def _build_client(env_file: str) -> MissionChiefClient:
+    auth_config = AuthConfig.from_env(env_file)
+    session = build_session(auth_config)
+    return MissionChiefClient(session, auth_config.base_url)
+
+
+def _run_write_action(logger, log_path: Path, action_label: str, fn):
+    """Shared error handling for the Phase 5 write-action commands (expand, toggle-service,
+    buy-vehicle, hire, assign-personnel) — same pattern as build/run: session expiry and any other
+    exception become a clean console message instead of a raw traceback."""
+    try:
+        return fn()
+    except SessionExpiredError as exc:
+        typer.secho(f"Authentication failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        logger.exception("Unexpected error during %s", action_label)
+        typer.echo("")
+        typer.secho(
+            f"Unexpected error during {action_label}: {exc}\n"
+            f"Check your MissionChief account manually before retrying, and see {log_path} for "
+            "the full error.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+
+def _report_write_result(logger, log_path: Path, result, action_label: str, success_message: str) -> None:
+    """Shared success/failure reporting: every Phase 5 write-action result exposes `.success` and
+    `.response_text` (docs/missionchief-api.md — the failure-response shapes are unconfirmed, so
+    the raw body is always surfaced rather than guessed at)."""
+    if result.success:
+        logger.info("%s succeeded: %s", action_label, success_message)
+        typer.echo("")
+        typer.secho(success_message, fg=typer.colors.GREEN, bold=True)
+    else:
+        logger.error("%s could not be confirmed. Response body:\n%s", action_label, result.response_text)
+        typer.echo("")
+        typer.secho(
+            f"Could not confirm {action_label} succeeded. Check your account manually before "
+            "retrying.\n"
+            f"Page said: {summarize_html_for_log(result.response_text, max_chars=300)!r}\n"
+            f"Full response body logged to {log_path}",
+            fg=typer.colors.RED,
+        )
+    typer.echo(f"Full log: {log_path}")
+
+
 def _resolve_region_bbox(region, geocode_session: requests.Session) -> tuple[BoundingBox, str]:
     """Returns (bbox, city_label_for_naming_template)."""
     if region.bbox is not None:
@@ -585,6 +634,266 @@ def run(
     typer.echo("")
     typer.secho(f"Run complete: built {built}/{len(pending)}, spent {spent:,} credits.", bold=True)
     typer.echo(f"Full log: {log_path}")
+
+
+@app.command()
+def expand(
+    building_id: int = typer.Option(..., help="MissionChief building id (from `sync` or the game)"),
+    level: int = typer.Option(..., help="Expansion level to buy — must match a level offered on the live /expand page"),
+    env_file: str = ".env",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually submit the expansion. Without this, only previews it."
+    ),
+) -> None:
+    """Expand a station to `level`. Always pays Credits, never Coins.
+
+    Dry-run by default: shows the current level and live price, spends nothing. Pass --execute
+    for one confirmation naming the exact price before anything is spent.
+    """
+    log_path = _setup_logging("expand")
+    logger = logging.getLogger("mc_autobuilder.expand")
+
+    mc_client = _run_write_action(logger, log_path, "expand", lambda: _build_client(env_file))
+
+    prices, current_level = _run_write_action(
+        logger,
+        log_path,
+        "expand",
+        lambda: (mc_client.get_expand_prices(building_id), mc_client.get_building_detail(building_id)["level"]),
+    )
+    price = prices.get(level)
+    if price is None:
+        typer.secho(
+            f"No expand option for level {level} on building {building_id} "
+            f"(available: {sorted(prices)}).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo("")
+    typer.secho(f"Building {building_id}: level {current_level} -> {level}", bold=True)
+    typer.echo(f"Price: {price:,} credits")
+
+    if not execute:
+        typer.echo("")
+        typer.secho("Dry run — pass --execute to actually expand this. Nothing was submitted.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    if not typer.confirm(
+        f"This will spend {price:,} real credits to expand building {building_id} to level {level}. Continue?"
+    ):
+        typer.echo("Cancelled — nothing was submitted.")
+        raise typer.Exit(code=0)
+
+    result = _run_write_action(logger, log_path, "expand", lambda: mc_client.expand_building(building_id, level))
+    _report_write_result(
+        logger, log_path, result, "expand",
+        f"Expanded building {building_id} to level {result.new_level}, cost {result.price:,} credits.",
+    )
+
+
+@app.command()
+def toggle_service(
+    building_id: int = typer.Option(..., help="MissionChief building id (from `sync` or the game)"),
+    env_file: str = ".env",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually toggle the station. Without this, only previews it."
+    ),
+) -> None:
+    """Toggle a station's in-service/out-of-service state. Free — spends no credits.
+
+    Dry-run by default: shows the current state, changes nothing. Pass --execute for one
+    confirmation before toggling.
+    """
+    log_path = _setup_logging("toggle_service")
+    logger = logging.getLogger("mc_autobuilder.toggle_service")
+
+    mc_client = _run_write_action(logger, log_path, "toggle-service", lambda: _build_client(env_file))
+    current = _run_write_action(
+        logger, log_path, "toggle-service", lambda: mc_client.get_building_detail(building_id)["enabled"]
+    )
+
+    typer.echo("")
+    typer.secho(f"Building {building_id}: currently {'in service' if current else 'out of service'}", bold=True)
+
+    if not execute:
+        typer.echo("")
+        typer.secho("Dry run — pass --execute to actually toggle this. Nothing was changed.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    verb = "take out of service" if current else "put back in service"
+    if not typer.confirm(f"This will {verb} building {building_id}. Continue?"):
+        typer.echo("Cancelled — nothing was changed.")
+        raise typer.Exit(code=0)
+
+    result = _run_write_action(logger, log_path, "toggle-service", lambda: mc_client.toggle_service(building_id))
+    _report_write_result(
+        logger, log_path, result, "toggle-service",
+        f"Building {building_id} is now {'in service' if result.enabled else 'out of service'}.",
+    )
+
+
+@app.command()
+def buy_vehicle(
+    building_id: int = typer.Option(..., help="MissionChief building id (from `sync` or the game)"),
+    vehicle_type: int = typer.Option(..., help="Vehicle catalog id from the live /vehicles/new page"),
+    env_file: str = ".env",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually submit the purchase. Without this, only previews it."
+    ),
+) -> None:
+    """Buy one vehicle of `vehicle_type` for a station. Always pays Credits, never Coins.
+
+    Dry-run by default: shows the vehicle's name and live price, spends nothing. Pass --execute
+    for one confirmation naming the exact price before anything is spent.
+    """
+    log_path = _setup_logging("buy_vehicle")
+    logger = logging.getLogger("mc_autobuilder.buy_vehicle")
+
+    mc_client = _run_write_action(logger, log_path, "buy-vehicle", lambda: _build_client(env_file))
+    options = _run_write_action(
+        logger, log_path, "buy-vehicle", lambda: mc_client.get_vehicle_purchase_options(building_id)
+    )
+    option = options.get(vehicle_type)
+    if option is None:
+        typer.secho(
+            f"No purchase option for vehicle_type {vehicle_type} on building {building_id} "
+            f"(available: {sorted(options)}).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo("")
+    typer.secho(f"Building {building_id}: buy {option.name!r}", bold=True)
+    typer.echo(f"Price: {option.price_credits:,} credits")
+
+    if not execute:
+        typer.echo("")
+        typer.secho("Dry run — pass --execute to actually buy this. Nothing was submitted.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    if not typer.confirm(
+        f"This will spend {option.price_credits:,} real credits to buy {option.name!r} for "
+        f"building {building_id}. Continue?"
+    ):
+        typer.echo("Cancelled — nothing was submitted.")
+        raise typer.Exit(code=0)
+
+    result = _run_write_action(
+        logger, log_path, "buy-vehicle", lambda: mc_client.buy_vehicle(building_id, vehicle_type)
+    )
+    _report_write_result(
+        logger, log_path, result, "buy-vehicle",
+        f"Bought {option.name!r} for building {building_id} — vehicle id "
+        f"{result.vehicle['id'] if result.vehicle else '?'}, cost {result.price:,} credits.",
+    )
+
+
+@app.command()
+def hire(
+    building_id: int = typer.Option(..., help="MissionChief building id (from `sync` or the game)"),
+    days: int = typer.Option(..., help="Recruiting phase length — must match an option on the live /hire page"),
+    env_file: str = ".env",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually start the recruiting phase. Without this, only previews it."
+    ),
+) -> None:
+    """Start (or extend) a free, day-based recruiting phase for a station. Never the Coins-based
+    instant-hire options.
+
+    Dry-run by default: shows the available day options, changes nothing. Pass --execute for one
+    confirmation. Note: this starts a timed phase — it does not add personnel immediately, and
+    success here only confirms the phase itself changed (docs/missionchief-api.md).
+    """
+    log_path = _setup_logging("hire")
+    logger = logging.getLogger("mc_autobuilder.hire")
+
+    mc_client = _run_write_action(logger, log_path, "hire", lambda: _build_client(env_file))
+    options = _run_write_action(logger, log_path, "hire", lambda: mc_client.get_hire_day_options(building_id))
+    if days not in options:
+        typer.secho(
+            f"No {days}-day hiring option on building {building_id}'s /hire page (available: {options}).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo("")
+    typer.secho(f"Building {building_id}: start a {days}-day recruiting phase", bold=True)
+    typer.echo("Free — spends no credits. Does not add personnel immediately (a timed phase).")
+
+    if not execute:
+        typer.echo("")
+        typer.secho("Dry run — pass --execute to actually start this. Nothing was submitted.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    if not typer.confirm(f"Start a {days}-day recruiting phase for building {building_id}. Continue?"):
+        typer.echo("Cancelled — nothing was submitted.")
+        raise typer.Exit(code=0)
+
+    result = _run_write_action(logger, log_path, "hire", lambda: mc_client.hire(building_id, days))
+    _report_write_result(
+        logger, log_path, result, "hire",
+        f"Started a {days}-day recruiting phase for building {building_id} (hiring_phase="
+        f"{result.hiring_phase}). New personnel arrive later, not immediately.",
+    )
+
+
+@app.command()
+def assign_personnel(
+    vehicle_id: int = typer.Option(..., help="MissionChief vehicle id (from `mc-autobuilder sync` or the game)"),
+    personal_id: int = typer.Option(..., help="Personnel id from the station's /personals roster"),
+    env_file: str = ".env",
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually toggle the assignment. Without this, only previews it."
+    ),
+) -> None:
+    """Toggle a person's permanent crew-roster binding to a vehicle: assigns if unbound, unassigns
+    if already bound (confirmed docs/missionchief-api.md). Free — spends no credits.
+
+    Dry-run by default: shows the person's name and current binding, changes nothing. Pass
+    --execute for one confirmation before toggling.
+    """
+    log_path = _setup_logging("assign_personnel")
+    logger = logging.getLogger("mc_autobuilder.assign_personnel")
+
+    mc_client = _run_write_action(logger, log_path, "assign-personnel", lambda: _build_client(env_file))
+    vehicles = _run_write_action(logger, log_path, "assign-personnel", mc_client.get_vehicles)
+    vehicle = next((v for v in vehicles if v["id"] == vehicle_id), None)
+    if vehicle is None:
+        typer.secho(f"No vehicle with id {vehicle_id} found in /api/vehicles.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo("")
+    typer.secho(
+        f"Vehicle {vehicle_id} ({vehicle.get('caption', '?')}): toggle binding for personnel {personal_id}",
+        bold=True,
+    )
+    typer.echo(f"Currently assigned crew: {vehicle.get('assigned_personnel_count', '?')}")
+
+    if not execute:
+        typer.echo("")
+        typer.secho("Dry run — pass --execute to actually toggle this. Nothing was submitted.", fg=typer.colors.CYAN)
+        raise typer.Exit(code=0)
+
+    typer.echo("")
+    if not typer.confirm(f"Toggle personnel {personal_id}'s crew binding on vehicle {vehicle_id}. Continue?"):
+        typer.echo("Cancelled — nothing was submitted.")
+        raise typer.Exit(code=0)
+
+    result = _run_write_action(
+        logger, log_path, "assign-personnel", lambda: mc_client.assign_personnel(vehicle_id, personal_id)
+    )
+    _report_write_result(
+        logger, log_path, result, "assign-personnel",
+        f"Vehicle {vehicle_id} now has {result.assigned_personnel_count} assigned crew.",
+    )
 
 
 def main() -> None:

@@ -90,6 +90,103 @@ def parse_new_building_form(html: str) -> NewBuildingForm:
     )
 
 
+# Confirmed in docs/missionchief-api.md: /buildings/<id>/expand lists every level as a plain
+# link, "Expand (<price> Credits)" — prices scale with level, so always parsed live, never cached.
+EXPAND_LEVEL_HREF_RE = re.compile(r"/expand_do/credits\?level=(\d+)")
+CREDITS_PRICE_RE = re.compile(r"([\d,]+)\s+Credits")
+
+
+def parse_expand_prices(html: str) -> dict[int, int]:
+    soup = BeautifulSoup(html, "html.parser")
+    prices: dict[int, int] = {}
+    for link in soup.find_all("a", href=EXPAND_LEVEL_HREF_RE):
+        level = int(EXPAND_LEVEL_HREF_RE.search(link["href"]).group(1))
+        match = CREDITS_PRICE_RE.search(link.get_text())
+        if match:
+            prices[level] = int(match.group(1).replace(",", ""))
+    return prices
+
+
+@dataclass
+class VehicleOption:
+    vehicle_type_id: int
+    name: str
+    price_credits: int
+    return_tab: str
+
+
+# Confirmed in docs/missionchief-api.md: /buildings/<id>/vehicles/new groups purchasable vehicles
+# into `<div class="vehicle_type well">` blocks, each with an <h3> name and a Credits/Coins link
+# pair. `vehicle_type_id` here is a purchase-catalog id local to this page, distinct from the
+# building_type enum used on /buildings/new.
+VEHICLE_CREDITS_HREF_RE = re.compile(r"/vehicle/\d+/(\d+)/credits\?building=\d+&return_tab=([a-z_]+)")
+
+
+def parse_vehicle_purchase_options(html: str) -> dict[int, VehicleOption]:
+    soup = BeautifulSoup(html, "html.parser")
+    options: dict[int, VehicleOption] = {}
+    for block in soup.find_all("div", class_="vehicle_type"):
+        heading = block.find("h3")
+        link = block.find("a", href=VEHICLE_CREDITS_HREF_RE)
+        if not heading or not link:
+            continue
+        match = VEHICLE_CREDITS_HREF_RE.search(link["href"])
+        price_match = CREDITS_PRICE_RE.search(link.get_text())
+        if not price_match:
+            continue
+        vehicle_type_id = int(match.group(1))
+        options[vehicle_type_id] = VehicleOption(
+            vehicle_type_id=vehicle_type_id,
+            name=heading.get_text(strip=True),
+            price_credits=int(price_match.group(1).replace(",", "")),
+            return_tab=match.group(2),
+        )
+    return options
+
+
+# Confirmed in docs/missionchief-api.md: /buildings/<id>/hire lists free day-based recruiting
+# options as plain `/hire_do/<n>` links; `hire_do/0` is "Cancel recruitment phase", not an option.
+HIRE_DAY_HREF_RE = re.compile(r"/hire_do/(\d+)$")
+
+
+def parse_hire_day_options(html: str) -> list[int]:
+    soup = BeautifulSoup(html, "html.parser")
+    days = set()
+    for link in soup.find_all("a", href=HIRE_DAY_HREF_RE):
+        day = int(HIRE_DAY_HREF_RE.search(link["href"]).group(1))
+        if day > 0:
+            days.add(day)
+    return sorted(days)
+
+
+@dataclass
+class PersonnelEntry:
+    personal_id: int
+    name: str
+    assigned_to: str | None  # currently-assigned vehicle's caption, or None if unassigned
+
+
+def parse_personnel_roster(html: str) -> list[PersonnelEntry]:
+    """Parses /buildings/<id>/personals — the only place `personal_id`s (needed by
+    `assign_personnel`) are discoverable, per docs/missionchief-api.md."""
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table", id="personal_table")
+    entries: list[PersonnelEntry] = []
+    if not table:
+        return entries
+    for row in table.find_all("tr"):
+        checkbox = row.find("input", class_="personal-delete-checkbox")
+        if not checkbox or not checkbox.get("value"):
+            continue
+        cells = row.find_all("td")
+        name = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+        assigned_to = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+        entries.append(
+            PersonnelEntry(personal_id=int(checkbox["value"]), name=name, assigned_to=assigned_to or None)
+        )
+    return entries
+
+
 @dataclass
 class BuildResult:
     success: bool
@@ -102,6 +199,50 @@ class BuildResult:
     # rejected twice while others at the same price succeed) can finally be diagnosed from the log
     # instead of asking the user to re-run a one-off diagnostic script.
     response_text: str = ""
+
+
+@dataclass
+class ExpandResult:
+    success: bool
+    level: int
+    price: int
+    new_level: int | None
+    response_status: int
+    response_text: str = ""
+
+
+@dataclass
+class ServiceToggleResult:
+    success: bool
+    enabled: bool | None
+    response_status: int
+    response_text: str = ""
+
+
+@dataclass
+class VehiclePurchaseResult:
+    success: bool
+    vehicle: dict | None
+    price: int
+    response_status: int
+    response_text: str = ""
+
+
+@dataclass
+class HireResult:
+    success: bool
+    hiring_phase: int | None
+    response_status: int
+    response_text: str = ""
+
+
+@dataclass
+class AssignPersonnelResult:
+    success: bool
+    assigned_personnel_count: int | None
+    response_status: int
+    response_text: str = ""
+
 
 # Confirmed in docs/missionchief-api.md: the game's frontend JS attaches these to every AJAX
 # call to /api/*, distinct from a plain browser navigation request (see auth.py's session
@@ -149,9 +290,14 @@ class MissionChiefClient:
             time.sleep(random.uniform(self.rate_limit.min_delay, self.rate_limit.max_delay))
         self._request_count += 1
 
-    def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+    def _request(self, method: str, path: str, ajax: bool = True, **kwargs) -> requests.Response:
+        """`ajax=False` for the plain-link station-management actions (expand, service toggle,
+        vehicle purchase, hiring) confirmed in docs/missionchief-api.md to carry neither
+        `X-Requested-With` nor `X-CSRF-Token` — unlike `/api/*` and `zuweisungDo`, which do."""
         url = f"{self.base_url}{path}"
-        headers = {**API_HEADERS, **kwargs.pop("headers", {})}
+        headers = kwargs.pop("headers", {})
+        if ajax:
+            headers = {**API_HEADERS, **headers}
         attempt = 0
         while True:
             self._sleep_between_requests()
@@ -178,6 +324,17 @@ class MissionChiefClient:
     def get_buildings(self) -> list[dict]:
         """GET /api/buildings — every building owned by the authenticated account."""
         resp = self._request("GET", "/api/buildings")
+        return resp.json()
+
+    def get_building_detail(self, building_id: int) -> dict:
+        """GET /api/buildings/<id> — single-building detail. Confirmed fields (docs/missionchief-api.md)
+        include `level`, `enabled`, `hiring_phase` — used to verify expand/toggle/hire actions."""
+        resp = self._request("GET", f"/api/buildings/{building_id}")
+        return resp.json()
+
+    def get_vehicles(self) -> list[dict]:
+        """GET /api/vehicles — every vehicle owned by the authenticated account."""
+        resp = self._request("GET", "/api/vehicles")
         return resp.json()
 
     def get_building_prices(self) -> dict[int, int]:
@@ -263,6 +420,162 @@ class MissionChiefClient:
             success=success,
             building=new_building,
             price=price,
+            response_status=resp.status_code,
+            response_text="" if success else resp.text,
+        )
+
+    def get_expand_prices(self, building_id: int) -> dict[int, int]:
+        """GET /buildings/<id>/expand — live credit price per expansion level. Always live; never
+        cache, since prices scale with the level already reached (docs/missionchief-api.md)."""
+        resp = self._request("GET", f"/buildings/{building_id}/expand", ajax=False)
+        return parse_expand_prices(resp.text)
+
+    def expand_building(self, building_id: int, level: int) -> ExpandResult:
+        """GET /buildings/<id>/expand_do/credits?level=<n> — pay Credits to expand to `level`.
+        Always Credits, never Coins (never automated here). The failure-response shape is
+        unconfirmed (docs/missionchief-api.md), so success is verified independently via
+        /api/buildings/<id>'s `level` field increasing, same before/after pattern as
+        `create_building`."""
+        prices = self.get_expand_prices(building_id)
+        price = prices.get(level)
+        if price is None:
+            raise ValueError(f"No price found for expand level {level} on /buildings/{building_id}/expand")
+
+        before_level = self.get_building_detail(building_id)["level"]
+        resp = self._request(
+            "GET",
+            f"/buildings/{building_id}/expand_do/credits",
+            params={"level": level},
+            ajax=False,
+            allow_redirects=False,
+        )
+        after_level = self.get_building_detail(building_id)["level"]
+        success = after_level > before_level
+        return ExpandResult(
+            success=success,
+            level=level,
+            price=price,
+            new_level=after_level,
+            response_status=resp.status_code,
+            response_text="" if success else resp.text,
+        )
+
+    def toggle_service(self, building_id: int) -> ServiceToggleResult:
+        """GET /buildings/<id>/active — toggles a station's enabled/disabled service state (free,
+        no credits spent). Verified via /api/buildings/<id>'s `enabled` field flipping."""
+        before_enabled = self.get_building_detail(building_id)["enabled"]
+        resp = self._request(
+            "GET", f"/buildings/{building_id}/active", ajax=False, allow_redirects=False
+        )
+        after_enabled = self.get_building_detail(building_id)["enabled"]
+        success = after_enabled != before_enabled
+        return ServiceToggleResult(
+            success=success,
+            enabled=after_enabled,
+            response_status=resp.status_code,
+            response_text="" if success else resp.text,
+        )
+
+    def get_vehicle_purchase_options(self, building_id: int) -> dict[int, VehicleOption]:
+        """GET /buildings/<id>/vehicles/new — live purchasable vehicle types + Credits prices for
+        this station. Always live; never cache (docs/missionchief-api.md)."""
+        resp = self._request("GET", f"/buildings/{building_id}/vehicles/new", ajax=False)
+        return parse_vehicle_purchase_options(resp.text)
+
+    def buy_vehicle(self, building_id: int, vehicle_type_id: int) -> VehiclePurchaseResult:
+        """GET /buildings/<id>/vehicle/<id>/<vehicle_type_id>/credits — buy one vehicle of
+        `vehicle_type_id` for this station. Always Credits, never Coins. Verified via
+        /api/vehicles, diffing for a new entry with matching building_id (failure-response shape
+        unconfirmed — docs/missionchief-api.md)."""
+        options = self.get_vehicle_purchase_options(building_id)
+        option = options.get(vehicle_type_id)
+        if option is None:
+            raise ValueError(
+                f"No purchase option found for vehicle_type_id {vehicle_type_id} on "
+                f"/buildings/{building_id}/vehicles/new"
+            )
+
+        before_ids = {v["id"] for v in self.get_vehicles()}
+        resp = self._request(
+            "GET",
+            f"/buildings/{building_id}/vehicle/{building_id}/{vehicle_type_id}/credits",
+            params={"building": building_id, "return_tab": option.return_tab},
+            ajax=False,
+            allow_redirects=False,
+        )
+        after = self.get_vehicles()
+        new_vehicle = next(
+            (v for v in after if v["id"] not in before_ids and v["building_id"] == building_id),
+            None,
+        )
+        success = new_vehicle is not None
+        return VehiclePurchaseResult(
+            success=success,
+            vehicle=new_vehicle,
+            price=option.price_credits,
+            response_status=resp.status_code,
+            response_text="" if success else resp.text,
+        )
+
+    def get_hire_day_options(self, building_id: int) -> list[int]:
+        """GET /buildings/<id>/hire — live list of free day-based recruiting options. Varies by
+        account (confirmed 1/2/3 in one account); always parsed live, never hardcoded
+        (docs/missionchief-api.md)."""
+        resp = self._request("GET", f"/buildings/{building_id}/hire", ajax=False)
+        return parse_hire_day_options(resp.text)
+
+    def hire(self, building_id: int, days: int) -> HireResult:
+        """GET /buildings/<id>/hire_do/<days> — start (or extend) a free, day-based recruiting
+        phase. Never the Coins-based instant-hire links. This does not add personnel immediately —
+        it starts a timed phase (docs/missionchief-api.md) — so success here only confirms the
+        phase itself changed, verified via /api/buildings/<id>'s `hiring_phase` field; it does not
+        mean new personnel have actually arrived yet."""
+        options = self.get_hire_day_options(building_id)
+        if days not in options:
+            raise ValueError(
+                f"No {days}-day hiring option found on /buildings/{building_id}/hire "
+                f"(available: {options})"
+            )
+
+        before_phase = self.get_building_detail(building_id)["hiring_phase"]
+        resp = self._request(
+            "GET", f"/buildings/{building_id}/hire_do/{days}", ajax=False, allow_redirects=False
+        )
+        after_phase = self.get_building_detail(building_id)["hiring_phase"]
+        success = after_phase != before_phase
+        return HireResult(
+            success=success,
+            hiring_phase=after_phase,
+            response_status=resp.status_code,
+            response_text="" if success else resp.text,
+        )
+
+    def get_personnel_roster(self, building_id: int) -> list[PersonnelEntry]:
+        """GET /buildings/<id>/personals — this station's employee roster, including each
+        person's personal_id (needed by `assign_personnel`, and otherwise undiscoverable —
+        docs/missionchief-api.md)."""
+        resp = self._request("GET", f"/buildings/{building_id}/personals", ajax=False)
+        return parse_personnel_roster(resp.text)
+
+    def assign_personnel(self, vehicle_id: int, personal_id: int) -> AssignPersonnelResult:
+        """POST /vehicles/<vehicle_id>/zuweisungDo/<personal_id> — toggle this person's permanent
+        crew-roster binding to this vehicle: assigns if unbound, unassigns if already bound
+        (confirmed docs/missionchief-api.md). No POST body; both IDs are in the URL. Verified via
+        /api/vehicles' `assigned_personnel_count` for this vehicle changing — the response body is
+        a small HTML row fragment describing the person's live mission-dispatch status, which is
+        unrelated to roster-binding success (see docs/missionchief-api.md's "open oddity, resolved")."""
+        before = next((v for v in self.get_vehicles() if v["id"] == vehicle_id), None)
+        if before is None:
+            raise ValueError(f"No vehicle with id {vehicle_id} found in /api/vehicles")
+
+        resp = self._request("POST", f"/vehicles/{vehicle_id}/zuweisungDo/{personal_id}")
+
+        after = next((v for v in self.get_vehicles() if v["id"] == vehicle_id), None)
+        after_count = after["assigned_personnel_count"] if after else None
+        success = after_count != before["assigned_personnel_count"]
+        return AssignPersonnelResult(
+            success=success,
+            assigned_personnel_count=after_count,
             response_status=resp.status_code,
             response_text="" if success else resp.text,
         )

@@ -4,7 +4,15 @@ from typer.testing import CliRunner
 
 from mc_autobuilder.auth import SessionExpiredError
 from mc_autobuilder.cli import app
-from mc_autobuilder.mc_client import BuildResult
+from mc_autobuilder.mc_client import (
+    AssignPersonnelResult,
+    BuildResult,
+    ExpandResult,
+    HireResult,
+    ServiceToggleResult,
+    VehicleOption,
+    VehiclePurchaseResult,
+)
 
 runner = CliRunner()
 
@@ -333,3 +341,151 @@ def test_run_respects_max_credits_per_run_budget(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Stopping — this run's 150,000-credit budget is used up." in result.output
     assert "Run complete: built 1/3" in result.output
+
+
+def _with_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("MC_AUTH_MODE=cookie\nMC_SESSION_COOKIE=session_id=dummy\n")
+    monkeypatch.setattr("mc_autobuilder.cli.build_session", lambda config: object())
+
+
+def test_expand_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_expand_prices", lambda self, bid: {0: 10_000})
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_building_detail", lambda self, bid: {"level": 0})
+
+    result = runner.invoke(app, ["expand", "--building-id", "5558174", "--level", "0"])
+
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    assert "10,000" in result.output
+
+
+def test_expand_execute_confirmed_reports_success(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_expand_prices", lambda self, bid: {0: 10_000})
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_building_detail", lambda self, bid: {"level": 0})
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.expand_building",
+        lambda self, bid, level: ExpandResult(success=True, level=0, price=10_000, new_level=1, response_status=302),
+    )
+
+    result = runner.invoke(app, ["expand", "--building-id", "5558174", "--level", "0", "--execute"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "Expanded building 5558174 to level 1" in result.output
+
+
+def test_toggle_service_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_building_detail", lambda self, bid: {"enabled": True})
+
+    result = runner.invoke(app, ["toggle-service", "--building-id", "5558174"])
+
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    assert "in service" in result.output
+
+
+def test_toggle_service_execute_confirmed_reports_success(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_building_detail", lambda self, bid: {"enabled": True})
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.toggle_service",
+        lambda self, bid: ServiceToggleResult(success=True, enabled=False, response_status=302),
+    )
+
+    result = runner.invoke(app, ["toggle-service", "--building-id", "5558174", "--execute"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "now out of service" in result.output
+
+
+def test_buy_vehicle_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    option = VehicleOption(vehicle_type_id=0, name="Type 1 fire engine", price_credits=5_000, return_tab="fire_engine")
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.get_vehicle_purchase_options", lambda self, bid: {0: option}
+    )
+
+    result = runner.invoke(app, ["buy-vehicle", "--building-id", "5558174", "--vehicle-type", "0"])
+
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    assert "Type 1 fire engine" in result.output
+    assert "5,000" in result.output
+
+
+def test_buy_vehicle_execute_confirmed_reports_success(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    option = VehicleOption(vehicle_type_id=0, name="Type 1 fire engine", price_credits=5_000, return_tab="fire_engine")
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.get_vehicle_purchase_options", lambda self, bid: {0: option}
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.buy_vehicle",
+        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(
+            success=True, vehicle={"id": 9999}, price=5_000, response_status=302
+        ),
+    )
+
+    result = runner.invoke(app, ["buy-vehicle", "--building-id", "5558174", "--vehicle-type", "0", "--execute"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "Bought" in result.output
+    assert "9999" in result.output
+
+
+def test_hire_rejects_day_option_not_offered(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_hire_day_options", lambda self, bid: [1, 2, 3])
+
+    result = runner.invoke(app, ["hire", "--building-id", "5558174", "--days", "7"])
+
+    assert result.exit_code == 1
+    assert "No 7-day hiring option" in result.output
+
+
+def test_hire_execute_confirmed_reports_success(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_hire_day_options", lambda self, bid: [1, 2, 3])
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.hire",
+        lambda self, bid, days: HireResult(success=True, hiring_phase=1, response_status=302),
+    )
+
+    result = runner.invoke(app, ["hire", "--building-id", "5558174", "--days", "1", "--execute"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "Started a 1-day recruiting phase" in result.output
+    assert "not immediately" in result.output
+
+
+def test_assign_personnel_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    vehicle = {"id": 14577420, "caption": "Type 1 fire engine", "assigned_personnel_count": 2}
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_vehicles", lambda self: [vehicle])
+
+    result = runner.invoke(app, ["assign-personnel", "--vehicle-id", "14577420", "--personal-id", "135847194"])
+
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+
+
+def test_assign_personnel_execute_confirmed_reports_success(tmp_path, monkeypatch):
+    _with_env(tmp_path, monkeypatch)
+    vehicle = {"id": 14577420, "caption": "Type 1 fire engine", "assigned_personnel_count": 2}
+    monkeypatch.setattr("mc_autobuilder.cli.MissionChiefClient.get_vehicles", lambda self: [vehicle])
+    monkeypatch.setattr(
+        "mc_autobuilder.cli.MissionChiefClient.assign_personnel",
+        lambda self, vehicle_id, personal_id: AssignPersonnelResult(
+            success=True, assigned_personnel_count=3, response_status=200
+        ),
+    )
+
+    result = runner.invoke(
+        app, ["assign-personnel", "--vehicle-id", "14577420", "--personal-id", "135847194", "--execute"], input="y\n"
+    )
+
+    assert result.exit_code == 0
+    assert "now has 3 assigned crew" in result.output

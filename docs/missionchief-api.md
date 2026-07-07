@@ -364,54 +364,104 @@ The dropdown lists the account's existing dispatch centers by name → id, e.g. 
 this form field; reassignment of an *already-built* station to a different center is a separate,
 not-yet-captured action.
 
-## Personnel-to-vehicle assignment (confirmed, 2026-07-06 HAR capture)
+## Phase 5 write actions (confirmed, 2026-07-06 HAR captures)
 
-Captured from a real session assigning 4 personnel each to two Type 1 fire engines.
+Two HAR captures from the same real session: the first only covered personnel assignment; a
+second, fuller one (recorded from before each page was opened) also covered expand, service
+toggle, vehicle purchase, and hiring. All confirmed against `building_id=5558174` ("Alameda County
+Fire Department Station 1", a Fire station) and its two vehicles (`14577420`, `14578509`).
 
-- **`POST /vehicles/<vehicle_id>/zuweisungDo/<personnel_id>`** — binds `personnel_id` as crew on
-  `vehicle_id`. No POST body; both IDs are in the path. Headers: `X-Requested-With:
-  XMLHttpRequest`, `X-CSRF-Token: <token>`, `Accept: */*`, `Referer:
-  /vehicles/<vehicle_id>/zuweisung` (confirms there's a per-vehicle "assign crew" page at that
-  path, but its GET request itself was never captured — see gap below).
-- Response (`200`, `text/html`) is a small HTML fragment for just that one personnel row, e.g.:
-  ```html
-  <td>Paul G.</td>
-  <td></td>
-  <td><span class="label label-success"><i>Available</i></span></td>
-  <td>
-    <a href="/vehicles/14577420">Type 1 fire engine</a><br>
-    <a class="btn btn-default btn-assigned" href="/vehicles/14577420/zuweisungDo/135847194" personal_id="135847194">Remove binding</a>
-  </td>
-  ```
-  The 3rd `<td>` is that employee's own duty status — `Available`, or `In a Vehicle: <a
-  href="...">...</a>` once bound somewhere. The 4th `<td>`'s link text flips to "Remove binding"
-  once assigned, implying the **same URL is used to unassign** (a toggle), though a toggle-back
-  was never observed in this capture (each personnel_id was only POSTed once).
-- **Open oddity, not yet explained:** for the second vehicle (14578509), three of the four
-  assigned personnel's status `<td>` showed `In a Vehicle: <a href="/vehicles/14577420">...</a>`
-  — i.e. pointing at the *other*, first-filled vehicle, not the one just assigned in that same
-  request. Could be a caching/rendering quirk in the game itself, or a misread of response
-  ordering. Don't build assumptions on which vehicle a person ends up in from this field alone —
-  verify via `/api/vehicles`'s `assigned_personnel_count` (confirmed field, before/after diff)
-  instead, same pattern as `create_building`.
+### Station expansion — `GET /buildings/<id>/expand_do/credits?level=<n>`
+
+- `GET /buildings/<id>/expand` lists every level with its Credits/Coins price as plain links, e.g.
+  `<a href="/buildings/5558174/expand_do/credits?level=0">Expand (10,000 Credits)</a>` and a
+  parallel `expand_do/coins?level=0` link ("25 Coins" — **never automate this one**, same
+  Credits-only rule as building creation). Price scales per level exactly like build prices
+  (10,000 → 60,000 → 160,000 → ... → 3,760,000 by level 38 in this account) — always re-fetch
+  `/buildings/<id>/expand` live immediately before submitting, never cache/hardcode.
+- Submitting the credits link is a plain `GET` (not a form POST) with no CSRF header — confirmed
+  `302` redirect to `/buildings/<id>` on success. `level` is 0-indexed and must match one of the
+  levels actually listed on the expand page (not just "current level + 1" — confirm from the page).
+- Verify success via `GET /api/buildings/<id>`'s `level` field (confirmed present) increasing,
+  same before/after-diff pattern as `create_building`.
+
+### Service-state toggle — `GET /buildings/<id>/active`
+
+- Plain `GET`, no params, no CSRF header, confirmed `302` redirect back to `/buildings/<id>`.
+  Captured twice in the same session (disable, then re-enable) — same URL both directions, a pure
+  toggle.
+- Verify via `/api/buildings/<id>`'s `enabled` field (confirmed present) flipping.
+
+### Vehicle purchase — `GET /buildings/<id>/vehicle/<id>/<vehicle_type_id>/credits?building=<id>&return_tab=<tab>`
+
+- `GET /buildings/<id>/vehicles/new` lists every purchasable vehicle type for that station type,
+  grouped into tabs (`return_tab` values seen: `fire_engine`, `ambulance`, `airport`, `brush`,
+  `tanker`, `trailer`, `tow_trucks`, `water_rescue`, `coastal_rescue`, `fire_investigation`,
+  `fire_support`, `firefighting_other`, `disaster_response`, `water_damage_and_flood`, `container`
+  — station-type-dependent). Each vehicle is a `<div class="vehicle_type well">` with an `<h3>`
+  name (e.g. "Type 1 fire engine"), stats (Max Crew, Capacity, water/foam/pump for engines), and
+  paired Credits/Coins purchase links, e.g. `<a href="/buildings/5558174/vehicle/5558174/0/credits?building=5558174&return_tab=fire_engine">5,000 Credits</a>`
+  — the `0` here is a **vehicle-type id local to the purchase catalog** (distinct from the
+  building-type enum), confirmed values in this capture: `0` = Type 1 fire engine (5,000cr),
+  `1` = a second Type 1 variant (5,000cr), `13` = Type 1 (19,000cr), others unseen. Always parse
+  the live page rather than hardcoding these ids/prices.
+- Submitting the credits link is a plain `GET`, confirmed `302` redirect to
+  `/buildings/<id>/vehicles/new` (not `/buildings/<id>` — different from expand/build/toggle).
+- Verify success via `GET /api/vehicles`, diffing for a new entry with matching `building_id`
+  (same before/after pattern as `create_building`/`get_buildings`).
+
+### Hiring — `GET /buildings/<id>/hire_do/<days>`
+
+- `GET /buildings/<id>/hire` shows: instant paid options (`hire_do/coins` "Recruit now (5 coins)",
+  `hire_do/coins_multiple` "Recruit 5 now (20 Coins)" — **never automate these, Coins-only**), and
+  free day-based recruiting phase links — confirmed `hire_do/1`, `hire_do/2`, `hire_do/3` ("Recruit
+  1/2/3 day(s)") in this account. The task brief mentions 1/3/7-day options elsewhere, so **parse
+  the actual links present on the live `/hire` page** rather than assuming a fixed set — this
+  account only offered 1/2/3.
+- Once a recruiting phase is active, the page instead shows "The recruiting phase still runs for N
+  day(s)" and a `hire_do/0` link ("Cancel recruitment phase") in place of the day-options.
+- Submitting a day-option is a plain `GET`, confirmed `302` redirect back to `/buildings/<id>/hire`.
+- Verify via `/api/buildings/<id>`'s `hiring_phase` field (confirmed present) changing — it does
+  **not** immediately add personnel; it starts/extends a timed phase, matching the "Every night
+  it's possible to add a person ... when a promotion is active" copy on the page. Actual new
+  personnel arriving is a separate, later, passive event — not something a single `hire` call can
+  verify synchronously the way `create_building`/expand/vehicle-purchase can.
+- `hire_with_education` (`POST`, separate form on the same page, `education` field like
+  `feuerwehrschule,0` = HazMat) was visible but never submitted in this capture — still unconfirmed.
+
+### Personnel-to-vehicle assignment — `POST /vehicles/<vehicle_id>/zuweisungDo/<personnel_id>`
+
+- `GET /buildings/<id>/personals` is the roster page confirming how to discover personnel_ids:
+  a `#personal_table` with one `<tr>` per employee, `<input type="checkbox" ... value="<personal_id>">`,
+  name, education, **currently-assigned vehicle caption** (e.g. "Type 1 fire engine"), and a
+  real-time duty-status column (`Available` / `In a Vehicle: <link>`).
+- `GET /vehicles/<vehicle_id>/zuweisung` is the per-vehicle assign/unassign page: same roster,
+  filtered to one `<table id="personal_table">`, each row's action `<td>` is either `<a
+  class="btn btn-success" href="/vehicles/<id>/zuweisungDo/<personal_id>">Assign vehicle</a>` (not
+  yet bound to *this* vehicle) or, once bound, `<a class="btn btn-default btn-assigned"
+  href="...">Remove binding</a>` — **confirms `zuweisungDo` is a toggle whose direction depends on
+  current binding state**, discoverable by which link text/class is present before clicking.
+- **The earlier "open oddity" is resolved.** The Status column (`Available` / `In a Vehicle: X`) is
+  that employee's *live mission-dispatch status* — whether they're currently out on a call in some
+  vehicle — which is entirely independent of the *permanent crew-roster binding* `zuweisungDo`
+  controls. A person can show "In a Vehicle: X" (mid-call) while their assign/unassign link for a
+  completely different vehicle Y still says "Assign vehicle", because roster binding and real-time
+  dispatch occupancy are unrelated axes. Don't conflate them; verify assignment success via
+  `/api/vehicles`'s `assigned_personnel_count` (confirmed field), not the Status column.
 - `GET /vehicles/<id>/update_required_personnel_alert` fires after each assignment (empty `200`
-  body in this capture) — looks like a UI badge refresh, not load-bearing for automation.
-- `GET /api/buildings/<id>` (single-building detail, as opposed to the `/api/buildings` list)
-  confirmed fields: `personal_count`, `personal_count_target`, `hiring_phase`, `hiring_automatic`,
-  `enabled`, `leitstelle_building_id` — directly relevant to the still-unconfirmed hiring and
-  service-toggle actions below.
-- `GET /api/vehicles` (list, all owned vehicles) confirmed fields include `assigned_personnel_count`,
-  `vehicle_type`, `building_id`, `caption`, `fms_real`/`fms_show` (status codes, meaning
-  unconfirmed).
-- **Gap: no way yet to discover available personnel_ids/names before assignment.** The page at
-  `/vehicles/<id>/zuweisung` (referenced as the `Referer` on every `zuweisungDo` call) must list
-  them, but its own `GET` was never captured — it was already open before recording started. Need
-  a HAR capture that starts *before* opening that page for a station with unassigned personnel.
+  body) — a UI badge refresh, not load-bearing.
+- Education/training requirement surfacing on assignment (e.g. a vehicle requiring a trained
+  operator) was never observed — still unconfirmed, needed to implement "skip and log" behavior
+  for personnel who don't qualify.
 
-## Not yet captured (needed before Phase 5 write actions)
+### Confirmed API field additions
 
-`POST /buildings` (building creation) is now confirmed against a real successful build — see
-above. Everything else below is still unconfirmed and must not be guessed at implementation time:
+- `GET /api/buildings/<id>` (single-building detail): `personal_count`, `personal_count_target`,
+  `hiring_phase`, `hiring_automatic`, `enabled`, `level`, `leitstelle_building_id`.
+- `GET /api/vehicles` (list): `assigned_personnel_count`, `vehicle_type`, `building_id`, `caption`,
+  `fms_real`/`fms_show` (status codes, meaning unconfirmed).
+
+## Not yet captured
 
 - **Resolved — `building[name]` has a hard 40-character limit.** The repeated real failure on
   "Union City Police Department- Fremont, CA" (41 characters) is now explained: the captured
@@ -427,17 +477,12 @@ above. Everything else below is still unconfirmed and must not be guessed at imp
   etc.) is still unconfirmed — `create_building` keeps the raw failed-POST response body on
   `BuildResult.response_text` (empty on success) so any future failure can be diagnosed from the
   log instead of guessing at markup that's never been seen.
-- Station expansion / level upgrade (`/buildings/:id/expand` or similar)
-- Vehicle purchase (`/buildings/:id/vehicles/new` and its POST target, plus bay-capacity limits)
-- Hiring (1/3/7-day) page and POST, and how `hiring_phase`/`hiring_automatic` map to those options
-- **Personnel-to-vehicle assignment: mostly confirmed now** — see the section above for the
-  `zuweisungDo` endpoint. Still missing: the `GET /vehicles/:id/zuweisung` listing page (how
-  personnel_ids/names are discovered before assignment), and how education/training requirements
-  surface (to implement "skip and log" behavior).
-- Service-state toggle (enable/disable an existing station) — likely a `PATCH`/`POST` on
-  `/buildings/:id`, but the exact path/params are unconfirmed
-- Dispatch-center creation, and **re-assigning an already-built station** to a different center
-- Equipment purchase/assignment
+- Dispatch-center creation, and **re-assigning an already-built station** to a different center —
+  no reassignment UI/endpoint appeared anywhere in either capture, including on `/buildings/<id>`
+  itself. Still needs its own capture.
+- `hire_with_education` (paid/trained hiring) — form seen, never submitted.
+- Education/training gating on personnel assignment.
+- Equipment purchase/assignment.
 
 Still need captures covering: `/buildings/:id/expand` (or equivalent), the vehicle-purchase UI,
 the hiring UI, the `/vehicles/:id/zuweisung` personnel-listing page, toggling a station out of

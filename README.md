@@ -34,10 +34,23 @@ This is being built in phases; only what's actually implemented is documented be
 | 1 | Auth + read-only building sync | **Done** — `mc-autobuilder login` / `sync` |
 | 2–3 | Config schema + dedupe planner against real RLM data | **Done** — `mc-autobuilder plan` |
 | 4 | Build execution (one station, or a whole plan) | **Done** — `mc-autobuilder build` / `run` |
-| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | Not started |
+| 5 | Expand / vehicles / hire / personnel / service / dispatch write actions | **In progress** — `expand`, `toggle-service`, `buy-vehicle`, `hire` done; dispatch reassignment not yet confirmed |
 | 6 | Web dashboard | Not started |
 
-Commands that don't exist yet: `expand`, `vehicles`, `hire`, `assign`, `service`, `dispatch`.
+Phase 5 commands, all dry-run by default with `--execute` + confirmation before anything changes
+(same safety pattern as `build`/`run`):
+
+- `mc-autobuilder expand --building-id <id> --level <n>` — pay Credits to expand a station.
+- `mc-autobuilder toggle-service --building-id <id>` — take a station out of service / back in. Free.
+- `mc-autobuilder buy-vehicle --building-id <id> --vehicle-type <n>` — buy a vehicle. Pay Credits.
+- `mc-autobuilder hire --building-id <id> --days <n>` — start a free day-based recruiting phase
+  (does not add personnel immediately — see `docs/missionchief-api.md`).
+- `mc-autobuilder assign-personnel --vehicle-id <id> --personal-id <id>` — toggle a person's crew
+  binding to a vehicle (personnel ids come from `/buildings/<id>/personals` in the game; no CLI
+  command surfaces that roster yet).
+
+Not yet implemented: dispatch-center reassignment (no confirmed endpoint yet — see
+`docs/missionchief-api.md`), `hire_with_education`, equipment purchase.
 
 ## Requirements
 
