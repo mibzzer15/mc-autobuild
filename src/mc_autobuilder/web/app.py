@@ -90,6 +90,10 @@ class NotAuthenticated(Exception):
     pass
 
 
+class ConfigFormError(Exception):
+    """Raised for a bad /config submission that should show a flash error, not a 500."""
+
+
 def create_app(
     env_file: str = ".env",
     db_path: str = "mc_autobuilder.db",
@@ -655,70 +659,100 @@ def create_app(
             },
         )
 
+    def _form_value(form, key: str, i: int) -> str:
+        values = form.getlist(key)
+        return values[i].strip() if i < len(values) else ""
+
+    def _required_float(form, key: str, i: int, region_name: str, field_label: str) -> float:
+        raw = _form_value(form, key, i)
+        if not raw:
+            raise ConfigFormError(f"Region '{region_name}': {field_label} is required for this mode.")
+        try:
+            return float(raw)
+        except ValueError:
+            raise ConfigFormError(f"Region '{region_name}': {field_label} must be a number, got {raw!r}.")
+
     @app.post("/config")
     async def config_save(request: Request, _: None = Depends(require_login)):
         form = await request.form()
 
-        regions = []
-        for i in range(len(form.getlist("region_name"))):
-            name = form.getlist("region_name")[i].strip()
-            if not name:
-                continue
-            mode = form.getlist("region_mode")[i]
-            region: dict = {"name": name}
-            if mode == "bbox":
-                region["bbox"] = {
-                    "north": float(form.getlist("region_north")[i]),
-                    "south": float(form.getlist("region_south")[i]),
-                    "east": float(form.getlist("region_east")[i]),
-                    "west": float(form.getlist("region_west")[i]),
-                }
-            elif mode == "city":
-                region["city"] = form.getlist("region_city")[i].strip()
-                region["radius_km"] = float(form.getlist("region_radius_km")[i])
-            elif mode == "center":
-                region["center"] = {
-                    "lat": float(form.getlist("region_center_lat")[i]),
-                    "lng": float(form.getlist("region_center_lng")[i]),
-                }
-                region["radius_km"] = float(form.getlist("region_radius_km")[i])
-            regions.append(region)
+        try:
+            regions = []
+            for i in range(len(form.getlist("region_name"))):
+                name = _form_value(form, "region_name", i)
+                if not name:
+                    continue
+                mode = _form_value(form, "region_mode", i)
+                region: dict = {"name": name}
+                if mode == "bbox":
+                    region["bbox"] = {
+                        "north": _required_float(form, "region_north", i, name, "North"),
+                        "south": _required_float(form, "region_south", i, name, "South"),
+                        "east": _required_float(form, "region_east", i, name, "East"),
+                        "west": _required_float(form, "region_west", i, name, "West"),
+                    }
+                elif mode == "city":
+                    city = _form_value(form, "region_city", i)
+                    if not city:
+                        raise ConfigFormError(f"Region '{name}': City is required for city mode.")
+                    region["city"] = city
+                    region["radius_km"] = _required_float(form, "region_radius_km", i, name, "Radius km")
+                elif mode == "center":
+                    region["center"] = {
+                        "lat": _required_float(form, "region_center_lat", i, name, "Center lat"),
+                        "lng": _required_float(form, "region_center_lng", i, name, "Center lng"),
+                    }
+                    region["radius_km"] = _required_float(form, "region_radius_km", i, name, "Radius km")
+                else:
+                    raise ConfigFormError(f"Region '{name}': unknown mode {mode!r}.")
+                regions.append(region)
 
-        building_types = {}
-        for poi_type, bt_raw, max_raw in zip(
-            form.getlist("bt_poi_type"), form.getlist("bt_building_type"), form.getlist("bt_max_per_run")
-        ):
-            poi_type = poi_type.strip()
-            if not poi_type or not bt_raw.strip():
-                continue
-            entry = {"building_type": int(bt_raw)}
-            if max_raw.strip():
-                entry["max_per_run"] = int(max_raw)
-            building_types[poi_type] = entry
+            building_types = {}
+            for poi_type, bt_raw, max_raw in zip(
+                form.getlist("bt_poi_type"), form.getlist("bt_building_type"), form.getlist("bt_max_per_run")
+            ):
+                poi_type = poi_type.strip()
+                bt_raw = bt_raw.strip()
+                max_raw = max_raw.strip()
+                if not poi_type or not bt_raw:
+                    continue
+                try:
+                    entry = {"building_type": int(bt_raw)}
+                    if max_raw:
+                        entry["max_per_run"] = int(max_raw)
+                except ValueError:
+                    raise ConfigFormError(f"Building type '{poi_type}': building_type/max_per_run must be whole numbers.")
+                building_types[poi_type] = entry
 
-        max_credits_raw = (form.get("max_credits_per_run") or "").strip()
-        data = {
-            "mission_chief": {
-                "game_world": (form.get("game_world") or "").strip(),
-                "base_url": (form.get("base_url") or "").strip() or "https://www.missionchief.com",
-            },
-            "regions": regions,
-            "building_types": building_types,
-            "dedupe": {"radius_m": float(form.get("dedupe_radius_m") or 150)},
-            "naming": {"template": form.get("naming_template") or "{poi_name}"},
-            "budget": {
-                "max_credits_per_run": int(max_credits_raw) if max_credits_raw else None,
-                "credit_reserve": int(form.get("credit_reserve") or 0),
-            },
-            "rlm_cache": {
-                "ttl_hours": float(form.get("rlm_cache_ttl_hours") or 24),
-                "cache_dir": form.get("rlm_cache_dir") or ".rlm_cache",
-            },
-            "rate_limiting": {
-                "min_delay_seconds": float(form.get("rate_limit_min_delay") or 2),
-                "max_delay_seconds": float(form.get("rate_limit_max_delay") or 5),
-            },
-        }
+            max_credits_raw = (form.get("max_credits_per_run") or "").strip()
+            try:
+                data = {
+                    "mission_chief": {
+                        "game_world": (form.get("game_world") or "").strip(),
+                        "base_url": (form.get("base_url") or "").strip() or "https://www.missionchief.com",
+                    },
+                    "regions": regions,
+                    "building_types": building_types,
+                    "dedupe": {"radius_m": float(form.get("dedupe_radius_m") or 150)},
+                    "naming": {"template": form.get("naming_template") or "{poi_name}"},
+                    "budget": {
+                        "max_credits_per_run": int(max_credits_raw) if max_credits_raw else None,
+                        "credit_reserve": int(form.get("credit_reserve") or 0),
+                    },
+                    "rlm_cache": {
+                        "ttl_hours": float(form.get("rlm_cache_ttl_hours") or 24),
+                        "cache_dir": form.get("rlm_cache_dir") or ".rlm_cache",
+                    },
+                    "rate_limiting": {
+                        "min_delay_seconds": float(form.get("rate_limit_min_delay") or 2),
+                        "max_delay_seconds": float(form.get("rate_limit_max_delay") or 5),
+                    },
+                }
+            except ValueError as exc:
+                raise ConfigFormError(f"Invalid number in one of the settings fields: {exc}")
+        except ConfigFormError as exc:
+            return flash_redirect("/config", str(exc), "error")
+
         save_raw_config(request.app.state.config_file, data)
 
         # MissionChief account settings live in .env, not config.yaml (see auth.py) - blank

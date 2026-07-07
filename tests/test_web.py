@@ -520,6 +520,49 @@ def test_config_save_and_reload_round_trips(client, tmp_path):
     assert 'value="38.0"' in resp.text
 
 
+def test_config_save_with_blank_bbox_fields_shows_flash_error_not_500(client, tmp_path):
+    _login(client)
+    client.app.state.config_file = str(tmp_path / "config.yaml")
+
+    # A user who types only a region name and leaves the bbox coordinate fields blank (the
+    # default mode for a fresh row) used to crash config_save() with an unhandled
+    # ValueError from float(""), producing a raw 500 instead of a clean error message.
+    resp = client.post(
+        "/config",
+        data={
+            "game_world": "US",
+            "region_name": ["Bay Area"] + [""] * 14,
+            "region_mode": ["bbox"] * 15,
+            "region_north": [""] * 15,
+            "region_south": [""] * 15,
+            "region_east": [""] * 15,
+            "region_west": [""] * 15,
+            "region_city": [""] * 15,
+            "region_center_lat": [""] * 15,
+            "region_center_lng": [""] * 15,
+            "region_radius_km": [""] * 15,
+            "bt_poi_type": [""] * 15,
+            "bt_building_type": [""] * 15,
+            "bt_max_per_run": [""] * 15,
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert "error" in resp.headers["location"]
+
+    resp2 = client.get(resp.headers["location"])
+    assert "Bay Area" in resp2.text
+    assert "North" in resp2.text
+    assert "is required for this mode" in resp2.text
+
+    # config.yaml must not have been written with an incomplete region.
+    from mc_autobuilder.config import load_raw_config
+
+    raw = load_raw_config(client.app.state.config_file)
+    assert raw == {}
+
+
 def test_config_page_shows_account_fields_without_leaking_secrets(client, tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text(
