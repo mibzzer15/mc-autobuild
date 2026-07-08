@@ -404,7 +404,7 @@ def test_toggle_service_execute_confirmed_reports_success(tmp_path, monkeypatch)
 
 def test_buy_vehicle_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
     _with_env(tmp_path, monkeypatch)
-    option = VehicleOption(vehicle_type_id=0, name="Type 1 fire engine", price_credits=5_000, return_tab="fire_engine")
+    option = VehicleOption(vehicle_type_id=0, name="Type 1 fire engine", price_credits=5_000, return_tab="fire_engine", purchase_href="/buildings/5558174/vehicle/5558174/0/credits?building=5558174&return_tab=fire_engine")
     monkeypatch.setattr(
         "mc_autobuilder.cli.MissionChiefClient.get_vehicle_purchase_options", lambda self, bid: {0: option}
     )
@@ -419,7 +419,7 @@ def test_buy_vehicle_without_execute_is_a_pure_dry_run(tmp_path, monkeypatch):
 
 def test_buy_vehicle_execute_confirmed_reports_success(tmp_path, monkeypatch):
     _with_env(tmp_path, monkeypatch)
-    option = VehicleOption(vehicle_type_id=0, name="Type 1 fire engine", price_credits=5_000, return_tab="fire_engine")
+    option = VehicleOption(vehicle_type_id=0, name="Type 1 fire engine", price_credits=5_000, return_tab="fire_engine", purchase_href="/buildings/5558174/vehicle/5558174/0/credits?building=5558174&return_tab=fire_engine")
     monkeypatch.setattr(
         "mc_autobuilder.cli.MissionChiefClient.get_vehicle_purchase_options", lambda self, bid: {0: option}
     )

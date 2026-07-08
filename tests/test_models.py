@@ -116,3 +116,44 @@ def test_init_db_migrates_old_station_presets_schema_without_a_column_error(tmp_
         assert list_presets(db) == []  # old row is gone, but querying no longer errors
     finally:
         db.close()
+
+
+def test_init_db_adds_dispatch_center_id_column_to_existing_presets_without_dropping_them(tmp_path):
+    # Unlike the max_level change, dispatch_center_id has a clean default (NULL), so the migration
+    # adds the column in place and keeps existing presets rather than recreating the table.
+    from mc_autobuilder.models import get_preset, save_preset
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE station_presets (
+          building_type INTEGER PRIMARY KEY,
+          target_level INTEGER,
+          manage_service BOOLEAN NOT NULL,
+          target_enabled BOOLEAN NOT NULL,
+          hire_days INTEGER,
+          vehicles_json TEXT NOT NULL,
+          updated_at DATETIME NOT NULL
+        )
+        """
+    )
+    conn.execute("INSERT INTO station_presets VALUES (5, 10, 0, 1, NULL, '[]', '2026-01-01')")
+    conn.commit()
+    conn.close()
+
+    engine = init_db(str(db_path))
+    db = get_session_factory(engine)()
+    try:
+        preset = get_preset(db, 5)
+        assert preset is not None  # existing preset preserved
+        assert preset.target_level == 10
+        assert preset.dispatch_center_id is None  # new column defaults to NULL
+        # And the new column is writable.
+        save_preset(
+            db, 5, target_level=10, manage_service=False, target_enabled=True,
+            hire_days=None, vehicles=[], dispatch_center_id=2534509,
+        )
+        assert get_preset(db, 5).dispatch_center_id == 2534509
+    finally:
+        db.close()

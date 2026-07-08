@@ -113,6 +113,11 @@ class VehicleOption:
     name: str
     price_credits: int
     return_tab: str
+    # The exact relative href of the Credits purchase link as it appears on the page, e.g.
+    # "/buildings/123/vehicle/123/0/credits?building=123&return_tab=fire_engine". Used verbatim by
+    # buy_vehicle rather than reconstructing the URL - the two path ids aren't necessarily both the
+    # building_id, so rebuilding from building_id alone can hit the wrong URL.
+    purchase_href: str
 
 
 # Confirmed in docs/missionchief-api.md: /buildings/<id>/vehicles/new groups purchasable vehicles
@@ -140,6 +145,7 @@ def parse_vehicle_purchase_options(html: str) -> dict[int, VehicleOption]:
             name=heading.get_text(strip=True),
             price_credits=int(price_match.group(1).replace(",", "")),
             return_tab=match.group(2),
+            purchase_href=link["href"],
         )
     return options
 
@@ -504,18 +510,15 @@ class MissionChiefClient:
         option = options.get(vehicle_type_id)
         if option is None:
             raise ValueError(
-                f"No purchase option found for vehicle_type_id {vehicle_type_id} on "
-                f"/buildings/{building_id}/vehicles/new"
+                f"No purchase option for vehicle_type_id {vehicle_type_id} on "
+                f"/buildings/{building_id}/vehicles/new (offered: {sorted(options)}). A brand-new or "
+                "out-of-service station may list no purchasable vehicles until it's in service."
             )
 
         before_ids = {v["id"] for v in self.get_vehicles()}
-        resp = self._request(
-            "GET",
-            f"/buildings/{building_id}/vehicle/{building_id}/{vehicle_type_id}/credits",
-            params={"building": building_id, "return_tab": option.return_tab},
-            ajax=False,
-            allow_redirects=False,
-        )
+        # Use the page's exact purchase link rather than reconstructing it from building_id: the
+        # two path ids in .../vehicle/<a>/<b>/credits aren't guaranteed to both be the building_id.
+        resp = self._request("GET", option.purchase_href, ajax=False, allow_redirects=False)
         after = self.get_vehicles()
         new_vehicle = next(
             (v for v in after if v["id"] not in before_ids and v["building_id"] == building_id),
@@ -527,7 +530,9 @@ class MissionChiefClient:
             vehicle=new_vehicle,
             price=option.price_credits,
             response_status=resp.status_code,
-            response_text="" if success else resp.text,
+            # On failure keep both the response body and which URL we hit, so a purchase that 302s
+            # but doesn't produce a vehicle can be diagnosed without a fresh capture.
+            response_text="" if success else f"POST {option.purchase_href} -> {resp.status_code}\n{resp.text}",
         )
 
     def get_hire_day_options(self, building_id: int) -> list[int]:

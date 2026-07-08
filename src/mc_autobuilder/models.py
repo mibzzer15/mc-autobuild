@@ -66,6 +66,9 @@ class StationPreset(Base):
     hire_days = Column(Integer, nullable=True)  # 1, 2, or 3 - confirmed live options (no "auto" yet)
     # JSON list of {"vehicle_type_id": int, "count": int, "personnel_per_vehicle": int} - presets.py.
     vehicles_json = Column(Text, nullable=False, default="[]")
+    # Dispatch center (leitstelle) building id to assign every new station of this type to, or None
+    # to leave dispatch assignment alone. This is a Dispatch Center building's own id (building_type 1).
+    dispatch_center_id = Column(Integer, nullable=True)
     updated_at = Column(DateTime, nullable=False)
 
 
@@ -116,6 +119,15 @@ def _migrate_schema(engine: Engine) -> None:
         )
         with engine.begin() as conn:
             conn.execute(text("DROP TABLE station_presets"))
+        return
+
+    # dispatch_center_id was added after station_presets was already in the wild. Unlike the
+    # max_level change this has a clean default (NULL = "don't manage dispatch"), so add the column
+    # in place and keep every existing preset rather than dropping the table.
+    if "dispatch_center_id" not in columns:
+        logger.info("Adding station_presets.dispatch_center_id column to an existing database.")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE station_presets ADD COLUMN dispatch_center_id INTEGER"))
 
 
 def init_db(db_path: str) -> Engine:
@@ -204,6 +216,7 @@ def save_preset(
     target_enabled: bool,
     hire_days: int | None,
     vehicles: list[dict],
+    dispatch_center_id: int | None = None,
 ) -> None:
     obj = db.get(StationPreset, building_type)
     if obj is None:
@@ -214,6 +227,7 @@ def save_preset(
     obj.target_enabled = target_enabled
     obj.hire_days = hire_days
     obj.vehicles_json = json.dumps(vehicles)
+    obj.dispatch_center_id = dispatch_center_id
     obj.updated_at = datetime.now(timezone.utc)
     db.commit()
 

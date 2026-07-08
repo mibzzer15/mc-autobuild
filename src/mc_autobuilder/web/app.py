@@ -754,6 +754,12 @@ def create_app(
             # A representative building of this type (if one's been synced) so the vehicle
             # catalog can be shown with real names/prices instead of asking for raw ids blind.
             example_building = db.query(Building).filter_by(building_type=building_type).first()
+            # The account's synced dispatch centers (building_type 1), so the preset can offer a
+            # dropdown to auto-assign new stations rather than asking for a raw leitstelle id.
+            dispatch_centers = [
+                {"id": b.id, "caption": b.caption}
+                for b in db.query(Building).filter_by(building_type=1).order_by(Building.caption).all()
+            ]
         vehicle_catalog = None
         if example_building is not None:
             try:
@@ -774,6 +780,7 @@ def create_app(
                 "vehicles": parse_vehicles_json(preset.vehicles_json) if preset else [],
                 "vehicle_catalog": vehicle_catalog,
                 "example_building": example_building,
+                "dispatch_centers": dispatch_centers,
                 **flash_context(request),
             },
         )
@@ -784,6 +791,7 @@ def create_app(
         target_level_raw = (form.get("target_level") or "").strip()
         service_state = form.get("service_state") or ""  # "" | "on" | "off"
         hire_days_raw = form.get("hire_days") or ""  # "1" | "2" | "3" - "auto" isn't implemented yet
+        dispatch_raw = (form.get("dispatch_center_id") or "").strip()  # "" = don't manage dispatch
 
         vehicles = []
         for vt_raw, count_raw, crew_raw in zip(
@@ -806,6 +814,7 @@ def create_app(
                 target_enabled=service_state != "off",
                 hire_days=int(hire_days_raw) if hire_days_raw in ("1", "2", "3") else None,
                 vehicles=vehicles,
+                dispatch_center_id=int(dispatch_raw) if dispatch_raw else None,
             )
         type_name = BUILDING_TYPES.get(building_type, f"Type {building_type}")
         return flash_redirect("/presets", f"Saved preset for {type_name}.")

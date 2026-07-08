@@ -122,6 +122,9 @@ type should always end up looking like:
   type), each optionally with a **personnel-per-vehicle** count — after buying a vehicle, that
   many currently-unassigned personnel from the station's roster get assigned as its crew
   automatically.
+- **Dispatch center** — optionally assign every new station of this type to one of your dispatch
+  centers (picked from a dropdown of your synced Dispatch Center buildings). New stations are
+  assigned right after they're built; re-applying to an existing station reassigns it too.
 
 How it runs:
 - **Applied automatically** right after a station is built from the plan (CLI `build`/`run`, or

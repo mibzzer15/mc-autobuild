@@ -19,7 +19,7 @@ import json
 import logging
 from dataclasses import dataclass
 
-from .mc_client import MissionChiefClient
+from .mc_client import MissionChiefClient, summarize_html_for_log
 from .models import StationPreset, count_preset_vehicle_purchases, log_preset_action
 
 logger = logging.getLogger("mc_autobuilder.presets")
@@ -61,9 +61,29 @@ def apply_preset(mc_client: MissionChiefClient, db, building_id: int, preset: St
     for item in parse_vehicles_json(preset.vehicles_json):
         messages.extend(_apply_vehicle_target(mc_client, db, building_id, item, claimed_personal_ids))
 
+    if preset.dispatch_center_id is not None:
+        messages.extend(_apply_dispatch_center(mc_client, db, building_id, preset.dispatch_center_id))
+
     if not messages:
         messages.append("Nothing to do — this preset has no actions configured.")
     return messages
+
+
+def _apply_dispatch_center(mc_client: MissionChiefClient, db, building_id: int, leitstelle_id: int) -> list[str]:
+    try:
+        result = mc_client.set_dispatch_center(building_id, leitstelle_id)
+    except Exception as exc:
+        log_preset_action(db, building_id, "set_dispatch_center", leitstelle_id, False, str(exc))
+        logger.exception("Preset dispatch: error assigning building %s to leitstelle %s", building_id, leitstelle_id)
+        return [f"Could not assign dispatch center {leitstelle_id}: {exc}"]
+
+    log_preset_action(
+        db, building_id, "set_dispatch_center", leitstelle_id, result.success,
+        f"leitstelle {leitstelle_id}" if result.success else "not confirmed",
+    )
+    if not result.success:
+        return [f"Could not confirm dispatch-center assignment to {leitstelle_id}."]
+    return [f"Assigned to dispatch center {leitstelle_id}."]
 
 
 def _best_expand_param(prices: dict[int, int], current_level: int, target_level: int) -> int | None:
@@ -199,12 +219,16 @@ def _apply_vehicle_target(
             messages.append(f"Could not buy vehicle_type {item.vehicle_type_id}: {exc}")
             break
 
+        detail = summarize_html_for_log(result.response_text, max_chars=180)
         log_preset_action(
             db, building_id, "buy_vehicle", item.vehicle_type_id, result.success,
-            f"{result.price} credits" if result.success else "not confirmed",
+            f"{result.price} credits" if result.success else f"not confirmed: {detail}",
         )
         if not result.success:
-            messages.append(f"Could not confirm a vehicle_type {item.vehicle_type_id} purchase — stopping this type.")
+            messages.append(
+                f"Could not confirm a vehicle_type {item.vehicle_type_id} purchase — stopping this "
+                f"type. Server said: {detail!r}"
+            )
             break
         messages.append(f"Bought vehicle_type {item.vehicle_type_id} ({result.price:,} credits).")
 

@@ -37,6 +37,24 @@
   </div>
 
   <div class="card">
+    <h2>Dispatch center</h2>
+    <label for="dispatch_center_id">Assign new stations to</label><br>
+    <select id="dispatch_center_id" name="dispatch_center_id">
+      <option value="" {{ "selected" if not preset or preset.dispatch_center_id is none }}>Don't manage dispatch</option>
+      {% for dc in dispatch_centers %}
+      <option value="{{ dc.id }}" {{ "selected" if preset and preset.dispatch_center_id == dc.id }}>{{ dc.caption }} (#{{ dc.id }})</option>
+      {% endfor %}
+    </select>
+    {% if not dispatch_centers %}
+    <p class="muted">No dispatch centers synced yet. Sync your buildings (they're building type 1),
+       then reload this page to pick one.</p>
+    {% else %}
+    <p class="muted">Every newly-built station of this type is assigned to the chosen dispatch
+       center right after it's built. Applying a preset to an existing station reassigns it too.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
     <h2>Vehicles</h2>
     {% if vehicle_catalog %}
     <p class="muted">Live catalog from {{ example_building.caption }} (this type's vehicle prices/ids):</p>

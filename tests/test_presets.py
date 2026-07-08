@@ -2,6 +2,7 @@ import pytest
 
 from mc_autobuilder.mc_client import (
     AssignPersonnelResult,
+    DispatchAssignResult,
     ExpandResult,
     HireResult,
     MissionChiefClient,
@@ -216,6 +217,49 @@ def test_vehicle_purchases_stop_on_first_unconfirmed_failure(client, db, monkeyp
 
     assert len(get_preset_log(db, 5558174)) == 1  # stopped after the first failed attempt
     assert "stopping this type" in messages[-1]
+
+
+def test_vehicle_purchase_failure_surfaces_server_response_for_diagnosis(client, db, monkeypatch):
+    monkeypatch.setattr(
+        MissionChiefClient, "buy_vehicle",
+        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(
+            False, None, 5_000, 200, "POST /buildings/1/vehicle/1/0/credits -> 200\n<html>Not enough credits</html>"
+        ),
+    )
+
+    vehicles = dump_vehicles_json([{"vehicle_type_id": 0, "count": 1}])
+    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles))
+
+    # The failure message and the logged action both include the server's response so a broken
+    # purchase can be diagnosed from the building's action log without a fresh HAR.
+    assert "Not enough credits" in messages[-1]
+    log = get_preset_log(db, 5558174)
+    assert "Not enough credits" in log[-1].message
+
+
+def test_preset_assigns_dispatch_center_when_configured(client, db, monkeypatch):
+    calls = []
+
+    def fake_set_dispatch(self, bid, leitstelle_id):
+        calls.append((bid, leitstelle_id))
+        return DispatchAssignResult(success=True, building_id=bid, leitstelle_id=leitstelle_id, response_status=200)
+
+    monkeypatch.setattr(MissionChiefClient, "set_dispatch_center", fake_set_dispatch)
+
+    messages = apply_preset(client, db, 5558174, _preset(dispatch_center_id=2534509))
+
+    assert calls == [(5558174, 2534509)]
+    assert "Assigned to dispatch center 2534509." in messages[-1]
+    assert get_preset_log(db, 5558174)[-1].action_type == "set_dispatch_center"
+
+
+def test_preset_skips_dispatch_center_when_not_configured(client, db, monkeypatch):
+    monkeypatch.setattr(
+        MissionChiefClient, "set_dispatch_center",
+        lambda self, bid, leitstelle_id: pytest.fail("should not be called when dispatch_center_id is None"),
+    )
+    messages = apply_preset(client, db, 5558174, _preset())  # dispatch_center_id defaults to None
+    assert "Nothing to do" in messages[-1]
 
 
 def test_vehicle_purchase_assigns_crew_from_unassigned_roster(client, db, monkeypatch):

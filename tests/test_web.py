@@ -119,7 +119,7 @@ def _patch_building_detail_deps(monkeypatch):
     monkeypatch.setattr("mc_autobuilder.web.app.MissionChiefClient.get_expand_prices", lambda self, bid: {0: 10_000})
     monkeypatch.setattr(
         "mc_autobuilder.web.app.MissionChiefClient.get_vehicle_purchase_options",
-        lambda self, bid: {0: VehicleOption(0, "Type 1 fire engine", 5_000, "fire_engine")},
+        lambda self, bid: {0: VehicleOption(0, "Type 1 fire engine", 5_000, "fire_engine", "/buildings/1/vehicle/1/0/credits?building=1&return_tab=fire_engine")},
     )
     monkeypatch.setattr("mc_autobuilder.web.app.MissionChiefClient.get_hire_day_options", lambda self, bid: [1, 2, 3])
 
@@ -170,7 +170,7 @@ def test_expand_requires_two_steps_before_spending(client, monkeypatch):
 
 def test_buy_vehicle_requires_two_steps_before_spending(client, monkeypatch):
     _login(client)
-    option = VehicleOption(0, "Type 1 fire engine", 5_000, "fire_engine")
+    option = VehicleOption(0, "Type 1 fire engine", 5_000, "fire_engine", "/buildings/1/vehicle/1/0/credits?building=1&return_tab=fire_engine")
     monkeypatch.setattr("mc_autobuilder.web.app.MissionChiefClient.get_vehicle_purchase_options", lambda self, bid: {0: option})
 
     confirm = client.get("/buildings/5558174/vehicles/new/confirm?vehicle_type=0")
@@ -379,6 +379,48 @@ def test_preset_save_and_reload_round_trips(client):
     assert "Level 20" in resp.text
     assert "Keep in service" in resp.text
     assert "Recruit 3d" in resp.text
+
+
+def test_preset_dispatch_center_dropdown_lists_synced_centers_and_saves(client, monkeypatch):
+    _login(client)
+    # Sync a Dispatch Center (building_type 1) so it shows up as a dropdown option.
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_buildings",
+        lambda self: [
+            {
+                "id": 2534509, "building_type": 1, "caption": "Central Dispatch",
+                "latitude": 1.0, "longitude": 2.0, "level": 0, "personal_count": 0,
+                "personal_count_target": 0, "enabled": True,
+            }
+        ],
+    )
+    client.post("/sync")
+
+    page = client.get("/presets/0").text
+    assert "Central Dispatch" in page
+    assert "2534509" in page
+
+    resp = client.post(
+        "/presets/0",
+        data={
+            "dispatch_center_id": "2534509",
+            "vehicle_type_id": [""], "vehicle_count": [""], "vehicle_personnel": [""],
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    from mc_autobuilder.models import get_preset
+
+    db = client.app.state.session_factory()
+    try:
+        assert get_preset(db, 0).dispatch_center_id == 2534509
+    finally:
+        db.close()
+
+    # And the saved value is preselected on reload.
+    reload = client.get("/presets/0").text
+    assert 'value="2534509" selected' in reload or 'value="2534509"  selected' in reload
 
 
 def test_building_detail_shows_no_preset_configured_by_default(client, monkeypatch):

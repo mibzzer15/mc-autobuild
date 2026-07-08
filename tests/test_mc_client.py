@@ -285,6 +285,9 @@ def test_parse_vehicle_purchase_options_from_real_captured_page():
     assert options[0].name == "Type 1 fire engine"
     assert options[0].price_credits == 5_000
     assert options[0].return_tab == "fire_engine"
+    # The exact Credits href is kept verbatim (the Coins link is ignored) so buy_vehicle submits
+    # the page's real URL instead of reconstructing it from building_id.
+    assert options[0].purchase_href == "/buildings/5558174/vehicle/5558174/0/credits?building=5558174&return_tab=fire_engine"
 
 
 def test_parse_hire_day_options_excludes_cancel_and_coins_links():
@@ -364,6 +367,12 @@ def test_buy_vehicle_verified_by_diffing_vehicles_list():
     assert result.success is True
     assert result.vehicle == new_vehicle
     assert result.price == 5_000
+    # The purchase must hit the page's exact href (call index 2), not a URL reconstructed from
+    # building_id - the two path ids in .../vehicle/<a>/<b>/credits aren't guaranteed to match.
+    purchase_url = session.calls[2][1]
+    assert purchase_url.endswith(
+        "/buildings/5558174/vehicle/5558174/0/credits?building=5558174&return_tab=fire_engine"
+    )
 
 
 def test_hire_verified_by_hiring_phase_changing():
