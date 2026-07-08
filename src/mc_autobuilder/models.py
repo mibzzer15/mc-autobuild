@@ -63,7 +63,12 @@ class StationPreset(Base):
     target_level = Column(Integer, nullable=True)  # 1-39; None = don't manage expand
     manage_service = Column(Boolean, nullable=False, default=False)
     target_enabled = Column(Boolean, nullable=False, default=True)
-    hire_days = Column(Integer, nullable=True)  # 1, 2, or 3 - confirmed live options (no "auto" yet)
+    hire_days = Column(Integer, nullable=True)  # 1, 2, or 3 - confirmed live day options
+    # Premium "hire automatically" mode (docs/missionchief-api.md). Mutually exclusive with
+    # hire_days - if set, auto-hire is used instead of a fixed day phase.
+    hire_automatic = Column(Boolean, nullable=False, default=False)
+    # Desired staffing level to set (the ceiling auto-hire fills toward), or None to leave it alone.
+    personnel_count_target = Column(Integer, nullable=True)
     # JSON list of {"vehicle_type_id": int, "count": int, "personnel_per_vehicle": int} - presets.py.
     vehicles_json = Column(Text, nullable=False, default="[]")
     # Dispatch center (leitstelle) building id to assign every new station of this type to, or None
@@ -128,6 +133,15 @@ def _migrate_schema(engine: Engine) -> None:
         logger.info("Adding station_presets.dispatch_center_id column to an existing database.")
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE station_presets ADD COLUMN dispatch_center_id INTEGER"))
+        columns.add("dispatch_center_id")
+
+    # hire_automatic + personnel_count_target added together (premium auto-hire support). Clean
+    # defaults, so add in place and keep existing presets rather than dropping the table.
+    if "hire_automatic" not in columns:
+        logger.info("Adding station_presets.hire_automatic / personnel_count_target columns.")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE station_presets ADD COLUMN hire_automatic BOOLEAN NOT NULL DEFAULT 0"))
+            conn.execute(text("ALTER TABLE station_presets ADD COLUMN personnel_count_target INTEGER"))
 
 
 def init_db(db_path: str) -> Engine:
@@ -217,6 +231,8 @@ def save_preset(
     hire_days: int | None,
     vehicles: list[dict],
     dispatch_center_id: int | None = None,
+    hire_automatic: bool = False,
+    personnel_count_target: int | None = None,
 ) -> None:
     obj = db.get(StationPreset, building_type)
     if obj is None:
@@ -226,6 +242,8 @@ def save_preset(
     obj.manage_service = manage_service
     obj.target_enabled = target_enabled
     obj.hire_days = hire_days
+    obj.hire_automatic = hire_automatic
+    obj.personnel_count_target = personnel_count_target
     obj.vehicles_json = json.dumps(vehicles)
     obj.dispatch_center_id = dispatch_center_id
     obj.updated_at = datetime.now(timezone.utc)

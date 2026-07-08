@@ -381,6 +381,36 @@ def test_preset_save_and_reload_round_trips(client):
     assert "Recruit 3d" in resp.text
 
 
+def test_preset_save_persists_auto_hire_and_personnel_target(client):
+    _login(client)
+    resp = client.post(
+        "/presets/0",
+        data={
+            "hire_days": "auto",
+            "personnel_count_target": "500",
+            "vehicle_type_id": [""], "vehicle_count": [""], "vehicle_personnel": [""],
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    from mc_autobuilder.models import get_preset
+
+    db = client.app.state.session_factory()
+    try:
+        preset = get_preset(db, 0)
+        assert preset.hire_automatic is True
+        assert preset.hire_days is None
+        assert preset.personnel_count_target == 500
+    finally:
+        db.close()
+
+    # The "Auto" option is now enabled (not disabled) and preselected on reload.
+    page = client.get("/presets/0").text
+    assert 'value="auto" selected' in page or 'value="auto"  selected' in page
+    assert 'value="500"' in page
+
+
 def test_preset_dispatch_center_dropdown_lists_synced_centers_and_saves(client, monkeypatch):
     _login(client)
     # Sync a Dispatch Center (building_type 1) so it shows up as a dropdown option.

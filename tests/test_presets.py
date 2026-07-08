@@ -189,6 +189,35 @@ def test_hiring_starts_when_no_phase_active(client, db, monkeypatch):
     assert "Started a 3-day recruiting phase." in messages[0]
 
 
+def test_auto_hire_applied_and_marks_complete(client, db, monkeypatch):
+    monkeypatch.setattr(MissionChiefClient, "hire_automatic", lambda self, bid: HireResult(True, None, 302))
+    # Day-based hire must NOT be called when auto is set.
+    monkeypatch.setattr(MissionChiefClient, "hire", lambda self, bid, days: pytest.fail("day-hire called"))
+
+    outcome = apply_preset(client, db, 5558174, _preset(hire_automatic=True))
+    assert outcome.complete is True
+    assert "Auto-hire enabled" in outcome.messages[0]
+
+
+def test_auto_hire_failure_on_non_premium_marks_incomplete(client, db, monkeypatch):
+    monkeypatch.setattr(MissionChiefClient, "hire_automatic", lambda self, bid: HireResult(False, None, 302, "no"))
+
+    outcome = apply_preset(client, db, 5558174, _preset(hire_automatic=True))
+    assert outcome.complete is False
+    assert "premium" in outcome.messages[0]
+
+
+def test_personnel_count_target_applied(client, db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        MissionChiefClient, "set_personnel_count_target",
+        lambda self, bid, target: (calls.append(target) or True),
+    )
+    outcome = apply_preset(client, db, 5558174, _preset(personnel_count_target=500))
+    assert calls == [500]
+    assert "Set personnel (desired) target to 500." in outcome.messages[0]
+
+
 def test_vehicle_purchases_are_capped_by_our_own_log_not_live_state(client, db, monkeypatch):
     # Simulate 1 of this vehicle_type already bought via a previous preset application.
     log_preset_action(db, 5558174, "buy_vehicle", 0, True, "5000 credits")

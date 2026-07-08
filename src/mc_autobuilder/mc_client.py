@@ -601,6 +601,48 @@ class MissionChiefClient:
             response_text="" if success else resp.text,
         )
 
+    def hire_automatic(self, building_id: int) -> HireResult:
+        """GET /buildings/<id>/hire_do/automatic — turn on premium "hire automatically" mode, which
+        keeps recruiting until the station's personnel-count target is reached (confirmed
+        docs/missionchief-api.md). AJAX call (X-Requested-With + the session's X-CSRF-Token),
+        confirmed 302 -> /hire. Only available on premium accounts; on a non-premium account the
+        game won't flip the flag, which is exactly how we detect it: verified via
+        /api/buildings/<id>'s confirmed `hiring_automatic` field becoming true. Returns a HireResult
+        whose `hiring_phase` is left None (auto mode isn't a day-count phase)."""
+        before = bool(self.get_building_detail(building_id).get("hiring_automatic"))
+        if before:
+            return HireResult(success=True, hiring_phase=None, response_status=200)
+        resp = self._request(
+            "GET", f"/buildings/{building_id}/hire_do/automatic", ajax=True, allow_redirects=False
+        )
+        after = bool(self.get_building_detail(building_id).get("hiring_automatic"))
+        return HireResult(
+            success=after,
+            hiring_phase=None,
+            response_status=resp.status_code,
+            response_text="" if after else resp.text,
+        )
+
+    def set_personnel_count_target(self, building_id: int, target: int) -> bool:
+        """POST /buildings/<id>?personal_count_target_only=1 — set the station's desired staffing
+        level (the ceiling auto-hire fills toward). Rails PATCH-over-POST with the authenticity
+        token in the body (confirmed docs/missionchief-api.md). Verified via /api/buildings/<id>'s
+        confirmed `personal_count_target` field matching. Returns True on confirmed change."""
+        token = self.session.headers.get("X-CSRF-Token", "")
+        resp = self._request(
+            "POST",
+            f"/buildings/{building_id}?personal_count_target_only=1",
+            data={
+                "utf8": "✓",
+                "_method": "patch",
+                "authenticity_token": token,
+                "building[personal_count_target]": str(target),
+            },
+            allow_redirects=False,
+        )
+        after = self.get_building_detail(building_id).get("personal_count_target")
+        return resp.status_code in (200, 302) and after == target
+
     def get_personnel_roster(self, building_id: int) -> list[PersonnelEntry]:
         """GET /buildings/<id>/personals — this station's employee roster, including each
         person's personal_id (needed by `assign_personnel`, and otherwise undiscoverable —

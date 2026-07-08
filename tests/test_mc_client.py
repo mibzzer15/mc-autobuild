@@ -84,6 +84,7 @@ class FakeMCSession:
     def __init__(self, responses):
         self.responses = responses
         self.calls = []
+        self.headers = {}
 
     def request(self, method, url, **kwargs):
         self.calls.append((method, url, kwargs))
@@ -400,6 +401,60 @@ def test_hire_rejects_day_option_not_offered():
 
     with pytest.raises(ValueError, match="No 7-day hiring option"):
         client.hire(5558174, days=7)
+
+
+def test_hire_automatic_verified_via_hiring_automatic_flag():
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, json_data={"hiring_automatic": False}),  # before
+            FakeMCResponse(302, text=""),  # GET hire_do/automatic
+            FakeMCResponse(200, json_data={"hiring_automatic": True}),  # after
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    result = client.hire_automatic(5558174)
+    assert result.success is True
+    # It's the AJAX hire_do/automatic call (index 1).
+    method, url, kwargs = session.calls[1]
+    assert url.endswith("/buildings/5558174/hire_do/automatic")
+    assert kwargs["headers"]["X-Requested-With"] == "XMLHttpRequest"
+
+
+def test_hire_automatic_reports_failure_on_non_premium_account():
+    # Non-premium: the flag never flips -> success False (not a silent no-op).
+    session = FakeMCSession(
+        [
+            FakeMCResponse(200, json_data={"hiring_automatic": False}),
+            FakeMCResponse(302, text="<html>not available</html>"),
+            FakeMCResponse(200, json_data={"hiring_automatic": False}),
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    assert client.hire_automatic(5558174).success is False
+
+
+def test_set_personnel_count_target_verified_via_api_field():
+    session = FakeMCSession(
+        [
+            FakeMCResponse(302, text=""),  # POST personal_count_target_only=1
+            FakeMCResponse(200, json_data={"personal_count_target": 300}),  # verify
+        ]
+    )
+    client = MissionChiefClient(session, "https://www.missionchief.com")
+    client.session.headers["X-CSRF-Token"] = "tok"
+    client.rate_limit.min_delay = client.rate_limit.max_delay = 0
+
+    assert client.set_personnel_count_target(5558174, 300) is True
+    method, url, kwargs = session.calls[0]
+    assert method == "POST" and "personal_count_target_only=1" in url
+    body = kwargs["data"]
+    assert body["building[personal_count_target]"] == "300"
+    assert body["_method"] == "patch"
+    assert body["authenticity_token"] == "tok"
 
 
 def _zuweisung_page(bound: bool) -> str:

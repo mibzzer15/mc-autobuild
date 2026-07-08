@@ -870,8 +870,9 @@ def create_app(
         form = await request.form()
         target_level_raw = (form.get("target_level") or "").strip()
         service_state = form.get("service_state") or ""  # "" | "on" | "off"
-        hire_days_raw = form.get("hire_days") or ""  # "1" | "2" | "3" - "auto" isn't implemented yet
+        hire_days_raw = form.get("hire_days") or ""  # "" | "1" | "2" | "3" | "auto"
         dispatch_raw = (form.get("dispatch_center_id") or "").strip()  # "" = don't manage dispatch
+        personnel_target_raw = (form.get("personnel_count_target") or "").strip()
 
         vehicles = []
         for vt_raw, count_raw, crew_raw in zip(
@@ -893,6 +894,8 @@ def create_app(
                 manage_service=service_state != "",
                 target_enabled=service_state != "off",
                 hire_days=int(hire_days_raw) if hire_days_raw in ("1", "2", "3") else None,
+                hire_automatic=hire_days_raw == "auto",
+                personnel_count_target=int(personnel_target_raw) if personnel_target_raw else None,
                 vehicles=vehicles,
                 dispatch_center_id=int(dispatch_raw) if dispatch_raw else None,
             )

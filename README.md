@@ -114,9 +114,11 @@ type should always end up looking like:
 - **Expand to level** — a specific target level (1-39), not just "max". Re-applying only buys
   the rungs still needed to reach it.
 - **Service state** — a single selector: don't manage / keep in service / keep out of service.
-- **Hiring** — a free 1/2/3-day recruiting phase. "Auto" (premium-only) hiring is shown but
-  disabled — it was never confirmed against a real account (see `docs/missionchief-api.md`), so
-  it isn't wired up yet rather than guessed at.
+- **Hiring** — a free 1/2/3-day recruiting phase, **or "Auto"** (premium continuous hiring toward
+  the staffing target, confirmed from a real capture — see `docs/missionchief-api.md`). If the
+  account isn't premium, applying the preset reports that auto-hire couldn't be enabled instead of
+  silently doing nothing. You can also set a **Personnel (desired) target** — the staffing level
+  auto-hire fills toward.
 - **Vehicles** — up to 15 rows of catalog `vehicle_type_id` + target count (the edit page shows
   a live catalog with real names/prices if you've already synced or built a station of that
   type), each optionally with a **personnel-per-vehicle** count — after buying a vehicle, that

@@ -23,17 +23,22 @@
 
   <div class="card">
     <h2>Hiring</h2>
-    <label for="hire_days">Free recruiting phase</label><br>
+    <label for="hire_days">Recruiting</label><br>
     <select id="hire_days" name="hire_days">
-      <option value="" {{ "selected" if not preset or not preset.hire_days }}>Don't hire</option>
+      <option value="" {{ "selected" if not preset or (not preset.hire_days and not preset.hire_automatic) }}>Don't hire</option>
       <option value="1" {{ "selected" if preset and preset.hire_days == 1 }}>1 day</option>
       <option value="2" {{ "selected" if preset and preset.hire_days == 2 }}>2 days</option>
       <option value="3" {{ "selected" if preset and preset.hire_days == 3 }}>3 days</option>
-      <option value="auto" disabled>Auto (premium — not yet supported, see docs/missionchief-api.md)</option>
+      <option value="auto" {{ "selected" if preset and preset.hire_automatic }}>Auto (premium — hires continuously toward the target)</option>
     </select>
-    <p class="muted">Actual day options vary live per station — this just picks which one to
-       request; if a station doesn't offer it, applying the preset will report that rather than
-       guessing at something else.</p>
+    <p class="muted">Day options vary live per station — if a station doesn't offer the one picked,
+       applying the preset reports that rather than guessing. "Auto" is a premium feature; if the
+       account doesn't have it, the preset reports that instead of silently doing nothing.</p>
+    <br>
+    <label for="personnel_count_target">Personnel (desired) target — the staffing level auto-hire fills toward</label><br>
+    <input type="number" id="personnel_count_target" name="personnel_count_target" min="0"
+           value="{{ preset.personnel_count_target if preset and preset.personnel_count_target is not none else '' }}">
+    <p class="muted">Leave blank to not manage it.</p>
   </div>
 
   <div class="card">

@@ -70,7 +70,16 @@ def apply_preset(mc_client: MissionChiefClient, db, building_id: int, preset: St
         messages.extend(msgs)
         complete = complete and ok
 
-    if preset.hire_days:
+    if preset.personnel_count_target is not None:
+        msgs, ok = _apply_personnel_target(mc_client, db, building_id, preset.personnel_count_target)
+        messages.extend(msgs)
+        complete = complete and ok
+
+    if preset.hire_automatic:
+        msgs, ok = _apply_auto_hiring(mc_client, db, building_id)
+        messages.extend(msgs)
+        complete = complete and ok
+    elif preset.hire_days:
         msgs, ok = _apply_hiring(mc_client, db, building_id, preset.hire_days)
         messages.extend(msgs)
         complete = complete and ok
@@ -229,6 +238,40 @@ def _apply_hiring(mc_client: MissionChiefClient, db, building_id: int, hire_days
     if not result.success:
         return ["Could not confirm the recruiting phase started."], False
     return [f"Started a {hire_days}-day recruiting phase."], True
+
+
+def _apply_auto_hiring(mc_client: MissionChiefClient, db, building_id: int) -> tuple[list[str], bool]:
+    try:
+        result = mc_client.hire_automatic(building_id)
+    except Exception as exc:
+        log_preset_action(db, building_id, "hire_automatic", None, False, str(exc))
+        logger.exception("Preset auto-hire: error for building %s", building_id)
+        return [f"Could not enable auto-hire: {exc}"], False
+
+    log_preset_action(
+        db, building_id, "hire_automatic", None, result.success,
+        "enabled" if result.success else "not confirmed (premium only?)",
+    )
+    if not result.success:
+        return [
+            "Could not confirm auto-hire turned on — it's a premium feature, so this account may "
+            "not have it. Use a 1/2/3-day recruiting phase instead."
+        ], False
+    return ["Auto-hire enabled (recruits toward the staffing target)."], True
+
+
+def _apply_personnel_target(mc_client: MissionChiefClient, db, building_id: int, target: int) -> tuple[list[str], bool]:
+    try:
+        ok = mc_client.set_personnel_count_target(building_id, target)
+    except Exception as exc:
+        log_preset_action(db, building_id, "personnel_target", target, False, str(exc))
+        logger.exception("Preset personnel target: error for building %s", building_id)
+        return [f"Could not set the personnel target: {exc}"], False
+
+    log_preset_action(db, building_id, "personnel_target", target, ok, "set" if ok else "not confirmed")
+    if not ok:
+        return [f"Could not confirm the personnel target was set to {target}."], False
+    return [f"Set personnel (desired) target to {target}."], True
 
 
 def _apply_vehicle_target(

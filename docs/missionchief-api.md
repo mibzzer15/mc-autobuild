@@ -522,3 +522,74 @@ Fire Department Station 1", a Fire station) and its two vehicles (`14577420`, `1
 Still need captures covering: `/buildings/:id/expand` (or equivalent), the vehicle-purchase UI,
 the hiring UI, the `/vehicles/:id/zuweisung` personnel-listing page, toggling a station out of
 service and back, and (if reachable) reassigning a station's dispatch center.
+
+## Full station build-out (confirmed, 2026-07-08 HAR capture `mc4.har`)
+
+A single capture of a brand-new Fire station (`5559690`) being fully built out end to end. It
+re-confirms several already-implemented actions against a *newly-built* station and adds five
+previously-unconfirmed ones.
+
+### Re-confirmations (validate existing code)
+
+- **Expand is a direct jump.** The expand page always lists `expand_do/credits?level=<current>`
+  through `?level=38` (contiguous). Sequence captured: level 0 page offered 0–38 (clicked `?level=0`
+  → level 1), level 1 page offered 1–38 (clicked `?level=1` → level 2), level 2 page offered 2–38
+  and the user clicked **`?level=38`** — with no further expand pages after, i.e. it jumped straight
+  from level 2 to level 39. Exactly matches `presets._best_expand_param` (to reach level L click
+  `?level=L-1`; pick the highest offered rung ≤ target-1).
+- **Vehicle purchase** across multiple tabs, e.g. `vehicle/5559690/0/credits?...&return_tab=fire_engine`,
+  `.../18/credits?...fire_engine`, `.../3/credits?...return_tab=firefighting_other`, `.../7/credits`.
+  Both path ids equal the building id here; `buy_vehicle` uses the page's exact href regardless.
+
+### Auto (premium) hiring — `GET /buildings/<id>/hire_do/automatic`
+
+- AJAX GET (`X-Requested-With: XMLHttpRequest` + `X-CSRF-Token`), confirmed `302` → `/buildings/<id>/hire`.
+  This is the premium "hire automatically" mode the day-based `hire_do/<n>` links don't cover.
+- While active, the `/hire` page shows an `alert-info`: "New staff will be hired automatically until
+  your desired staffing level is reached" (so auto-hire pairs with the personnel-count target below),
+  and the day options are replaced by a single `hire_do/0` (cancel) — same convention as an active
+  day phase. The trigger is a JS toggle, not a plain `href`, so availability isn't detectable from a
+  static link; verify success via `/api/buildings/<id>`'s confirmed `hiring_automatic` field becoming
+  `true`.
+
+### Personnel (desired) count target — `POST /buildings/<id>?personal_count_target_only=1`
+
+- `GET /buildings/<id>/personalCountTarget` (AJAX) returns a small form with the current value in
+  `<input name="building[personal_count_target]" value="<n>">` plus the `authenticity_token`.
+- Submit is AJAX `POST /buildings/<id>?personal_count_target_only=1`, body
+  `utf8=✓&_method=patch&authenticity_token=<TOKEN>&building[personal_count_target]=<n>`. Response is
+  just the new number as plain text. Sets how many staff the station recruits toward (the ceiling
+  auto-hire fills to).
+
+### Station extensions — `POST /buildings/<id>/extension/credits/<extension_id>?redirect_building_id=<id>`
+
+- The building page lists extension ids `0`–`22` as `<a data-method="post"
+  href="/buildings/<id>/extension/credits/<id>?redirect_building_id=<id>">` links (Rails UJS turns
+  `data-method="post"` into a form POST). Purchase body is `_method=post&authenticity_token=<TOKEN>`
+  — **token in the body, NOT an AJAX header** (no `X-Requested-With`/`X-CSRF-Token`). Confirmed
+  `302` → `/buildings/<id>`. Captured: extension `10` bought.
+- `/api/buildings/<id>`'s `extensions` array (`{caption, available, enabled, type_id}`) is how to
+  tell which extension ids are already owned (`enabled`) or buyable (`available`) — `type_id` maps to
+  the `extension/credits/<id>` path.
+
+### Equipment purchase — `GET /buildings/<id>/equipment/<key>/credits?return_tab=<tab>`
+
+- `GET /buildings/<id>/equipments/new` lists purchasable equipment as `<a
+  href="/buildings/<id>/equipment/<key>/credits?return_tab=<tab>">` (Credits) paired with a `.../coins`
+  link (**never automate Coins**). `key` is a named string, not a numeric id — confirmed keys include
+  `hazmat`, `breathing_protection`, `fire_rescue`, `flood_equipment`, `light_supply`, `energy_supply`,
+  `foam_carrier`, `hose`, `fire_command_advanced`, `fire_crane`, `fire_engine`, `fire_ladder`,
+  `fire_paramedic` (station-type dependent; `return_tab=fire_equipment` here). Parse the live page.
+
+### Equipment storage upgrades — `POST /buildings/<id>/storage_upgrade/credits/<key>?redirect_building_id=<id>`
+
+- The building page lists storage-capacity upgrades as `<a data-method="post"
+  href="/buildings/<id>/storage_upgrade/credits/<key>?redirect_building_id=<id>">`; buyable ones are
+  `btn-success`, already-bought/locked ones carry `disabled`. Confirmed keys (bought in order):
+  `fire_equipment_initial`, then `fire_equipment_additional`, `..._additional_2` … `..._additional_7`.
+  Same POST shape as extensions (`_method=post&authenticity_token=<TOKEN>`, token in body, not AJAX),
+  `302` → `/buildings/<id>`. These raise how much equipment a station can hold.
+
+**Token source for extensions/storage:** unlike expand/vehicle/hire (plain GET links with no CSRF),
+these are POSTs that need the page's `authenticity_token` in the body. Get it from the Rails CSRF
+`<meta name="csrf-token">` on any authenticated page, or from a form on the building page, then POST.

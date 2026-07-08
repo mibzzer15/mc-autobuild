@@ -157,3 +157,45 @@ def test_init_db_adds_dispatch_center_id_column_to_existing_presets_without_drop
         assert get_preset(db, 5).dispatch_center_id == 2534509
     finally:
         db.close()
+
+
+def test_init_db_adds_auto_hire_columns_to_existing_presets(tmp_path):
+    from mc_autobuilder.models import get_preset, save_preset
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    # Schema after dispatch_center_id was added but before auto-hire columns.
+    conn.execute(
+        """
+        CREATE TABLE station_presets (
+          building_type INTEGER PRIMARY KEY,
+          target_level INTEGER,
+          manage_service BOOLEAN NOT NULL,
+          target_enabled BOOLEAN NOT NULL,
+          hire_days INTEGER,
+          vehicles_json TEXT NOT NULL,
+          dispatch_center_id INTEGER,
+          updated_at DATETIME NOT NULL
+        )
+        """
+    )
+    conn.execute("INSERT INTO station_presets VALUES (5, 10, 0, 1, NULL, '[]', NULL, '2026-01-01')")
+    conn.commit()
+    conn.close()
+
+    engine = init_db(str(db_path))
+    db = get_session_factory(engine)()
+    try:
+        preset = get_preset(db, 5)
+        assert preset is not None and preset.target_level == 10
+        assert preset.hire_automatic is False  # new column, sensible default
+        assert preset.personnel_count_target is None
+        save_preset(
+            db, 5, target_level=10, manage_service=False, target_enabled=True,
+            hire_days=None, vehicles=[], hire_automatic=True, personnel_count_target=250,
+        )
+        reloaded = get_preset(db, 5)
+        assert reloaded.hire_automatic is True
+        assert reloaded.personnel_count_target == 250
+    finally:
+        db.close()
