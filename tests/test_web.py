@@ -576,7 +576,7 @@ def test_plan_run_builds_all_pending_and_applies_each_preset(client, monkeypatch
     )
 
     resp = client.post("/plan/run", follow_redirects=False)
-    assert "Building 2 station(s)" in unquote(resp.headers["location"])
+    assert "Processing 2 station(s)" in unquote(resp.headers["location"])
 
     assert _wait_for(lambda: client.app.state.plan_run_result is not None)
     result = client.app.state.plan_run_result
@@ -587,9 +587,13 @@ def test_plan_run_builds_all_pending_and_applies_each_preset(client, monkeypatch
     assert len(get_preset_log(sf(), 101)) > 0
     assert len(get_preset_log(sf(), 102)) > 0
 
-    # The plan page now shows 0 pending and the per-station run log.
-    page = client.get("/plan").text
-    assert "Station A" in page and "Station B" in page
+    # The live status endpoint reports both stations processed (the per-station log is rendered
+    # client-side from this JSON, not baked into the page HTML).
+    status = client.get("/plan/run/status").json()
+    assert status["in_progress"] is False
+    names = {row["name"] for row in status["result"]["log"]}
+    assert names == {"Station A", "Station B"}
+    assert all(row["status"] == "done" for row in status["result"]["log"])
 
 
 def test_plan_run_stops_at_budget_cap(client, monkeypatch, tmp_path):
@@ -614,9 +618,9 @@ def test_plan_run_stops_at_budget_cap(client, monkeypatch, tmp_path):
     assert result["status"] == "error"
     assert "Budget cap" in result["message"]
     assert "Built 1 station(s)" in result["message"]
-    # Exactly one station recorded as built.
+    # Exactly one station recorded as done.
     statuses = [row["status"] for row in result["log"]]
-    assert statuses.count("built") == 1
+    assert statuses.count("done") == 1
     assert "budget_stopped" in statuses
 
 
@@ -638,6 +642,59 @@ def test_plan_run_aborts_on_unconfirmed_build(client, monkeypatch, tmp_path):
     assert result["status"] == "error"
     assert "without building anything" in result["message"]
     assert [row["status"] for row in result["log"]] == ["failed"]
+
+
+def test_station_not_done_until_preset_completes_then_run_resumes_it(client, monkeypatch, tmp_path):
+    _login(client)
+    # A hire-only preset for type 5; the first attempt's hire fails (preset incomplete), the retry
+    # succeeds — so the station should be "built but preset unfinished" first, then fully done.
+    client.post("/presets/5", data={"hire_days": "1", "vehicle_type_id": [""], "vehicle_count": [""]})
+
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps({"to_build": [_two_station_plan()["to_build"][0]]}))  # one station
+    client.app.state.plan_path = str(plan_path)
+
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: BuildResult(True, {"id": 301}, 100_000, 200),
+    )
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.get_building_detail",
+        lambda self, bid: {"building_type": 5, "hiring_phase": 0},
+    )
+    # First hire attempt fails to confirm.
+    hire_results = iter([HireResult(False, 0, 200, "nope"), HireResult(True, 1, 302)])
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.hire", lambda self, bid, days: next(hire_results)
+    )
+
+    client.post("/plan/run", follow_redirects=False)
+    assert _wait_for(lambda: client.app.state.plan_run_result is not None)
+    # Built, but preset didn't complete -> not fully done, and the build was NOT recorded as done.
+    log = client.app.state.plan_run_result["log"]
+    assert log[-1]["status"] == "preset_incomplete"
+    page = client.get("/plan").text
+    assert "1 built but preset unfinished" in page
+
+    # Re-running must NOT re-build (create_building would raise StopIteration if called again) —
+    # it resumes the preset, which now succeeds, marking the station fully done.
+    monkeypatch.setattr(
+        "mc_autobuilder.web.app.MissionChiefClient.create_building",
+        lambda self, **kwargs: pytest.fail("must not re-build an already-built station"),
+    )
+    client.app.state.plan_run_result = None
+    client.post("/plan/run", follow_redirects=False)
+    assert _wait_for(lambda: client.app.state.plan_run_result is not None)
+    assert client.app.state.plan_run_result["log"][-1]["status"] == "done"
+    assert "1 fully done" in client.get("/plan").text
+
+
+def test_plan_run_status_endpoint_reports_idle_state(client):
+    _login(client)
+    status = client.get("/plan/run/status").json()
+    assert status["in_progress"] is False
+    assert status["total"] == 0
+    assert status["log"] == []
 
 
 def test_plan_run_confirm_page_warns_without_budget(client, tmp_path):
@@ -897,7 +954,7 @@ building_types:
     assert "1 already built" in msg
     page = client.get("/plan").text
     assert "1 station(s) to build" in page
-    assert "1 already done" in page
+    assert "1 fully done" in page
 
 
 def test_plan_generate_surfaces_background_failure_instead_of_silent_nothing(client, monkeypatch, tmp_path):

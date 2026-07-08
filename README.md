@@ -141,8 +141,17 @@ How it runs:
   level 39 is one purchase, not 39. Combined with a small default rate-limit delay (see
   `rate_limiting` in `config.yaml`, editable on the Config page), a full station build-out
   finishes in tens of seconds. Raise the delays there if you'd rather go gentler on the site.
-- **Runs in the background** on the dashboard — refresh the building's page to watch its action
-  log fill in as it goes. The CLI version runs synchronously and prints progress as it happens.
+- **Runs in the background** on the dashboard with **live progress** — the building's page streams
+  each preset action as it happens (no manual refresh), and the Plan page's "Run entire plan" shows
+  a progress bar with a per-station log. The CLI version runs synchronously and prints progress too.
+- **A station only counts as "done" once its build AND preset have both finished.** If a preset is
+  interrupted (session expiry, an unconfirmed action), the station is recorded as built but not
+  done, and the next run resumes just the preset — it never re-builds (that would spend credits on
+  a duplicate). The Plan page shows the three buckets: to build, built-but-preset-unfinished, and
+  fully done.
+- **Fast**: crew assignment verifies via a small per-vehicle page instead of re-downloading the
+  whole vehicle list, and a vehicle shopping list reuses one vehicle snapshot across purchases, so
+  staffing and buying take seconds rather than minutes.
 - **Scope, for now**: only actions already confirmed against a real account are covered (expand,
   service toggle, vehicles, crew assignment, hiring). Station extensions, equipment purchase, and
   "auto" hiring are **not** included yet — those were never captured live (see

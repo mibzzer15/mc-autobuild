@@ -54,6 +54,11 @@ a {
   border: 1px solid #cf222e;
 }
 
+/* Per-station run-log status cells (live progress). */
+.run-ok { color: #1a7f37; font-weight: 600; }
+.run-warn { color: #9a6700; font-weight: 600; }
+.run-err { color: #cf222e; font-weight: 600; }
+
 table {
   border-collapse: collapse;
   width: 100%;

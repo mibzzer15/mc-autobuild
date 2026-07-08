@@ -402,13 +402,21 @@ def test_hire_rejects_day_option_not_offered():
         client.hire(5558174, days=7)
 
 
-def test_assign_personnel_verified_by_assigned_personnel_count_changing():
-    vehicle = {"id": 14577420, "building_id": 5558174, "assigned_personnel_count": 2}
+def _zuweisung_page(bound: bool) -> str:
+    """A minimal /vehicles/<id>/zuweisung page for one person, in the given binding state."""
+    if bound:
+        link = '<a class="btn btn-default btn-assigned" href="/vehicles/14577420/zuweisungDo/135847194">Remove binding</a>'
+    else:
+        link = '<a class="btn btn-success" href="/vehicles/14577420/zuweisungDo/135847194">Assign vehicle</a>'
+    return f'<table id="personal_table"><tr><td>{link}</td></tr></table>'
+
+
+def test_assign_personnel_verified_via_small_zuweisung_page_not_full_vehicle_list():
     session = FakeMCSession(
         [
-            FakeMCResponse(200, json_data=[vehicle]),  # before
+            FakeMCResponse(200, text=_zuweisung_page(bound=False)),  # before: not bound
             FakeMCResponse(200, text="<td>Paul G.</td>"),  # POST zuweisungDo
-            FakeMCResponse(200, json_data=[{**vehicle, "assigned_personnel_count": 3}]),  # after
+            FakeMCResponse(200, text=_zuweisung_page(bound=True)),  # after: now bound
         ]
     )
     client = MissionChiefClient(session, "https://www.missionchief.com")
@@ -417,10 +425,24 @@ def test_assign_personnel_verified_by_assigned_personnel_count_changing():
     result = client.assign_personnel(vehicle_id=14577420, personal_id=135847194)
 
     assert result.success is True
-    assert result.assigned_personnel_count == 3
+    assert result.assigned_personnel_count == 1
+    # It must verify via the per-vehicle zuweisung page, never the ~17 MB /api/vehicles list.
+    assert all("/api/vehicles" not in url for _, url, _ in session.calls)
     # Regression guard: unlike expand/active/vehicle-purchase, zuweisungDo IS a confirmed AJAX call.
     method, url, kwargs = session.calls[1]
     assert kwargs["headers"]["X-Requested-With"] == "XMLHttpRequest"
+
+
+def test_parse_vehicle_bound_personnel_ids_reads_binding_state():
+    from mc_autobuilder.mc_client import parse_vehicle_bound_personnel_ids
+
+    html = (
+        '<table id="personal_table">'
+        '<tr><td><a class="btn btn-default btn-assigned" href="/vehicles/5/zuweisungDo/11">Remove binding</a></td></tr>'
+        '<tr><td><a class="btn btn-success" href="/vehicles/5/zuweisungDo/22">Assign vehicle</a></td></tr>'
+        "</table>"
+    )
+    assert parse_vehicle_bound_personnel_ids(html) == {11}
 
 
 def test_set_dispatch_center_verified_by_response_json_echoing_the_change():

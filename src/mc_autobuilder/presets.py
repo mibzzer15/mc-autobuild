@@ -32,6 +32,18 @@ class VehiclePresetItem:
     personnel_per_vehicle: int = 0
 
 
+@dataclass
+class PresetOutcome:
+    """Result of applying a preset. `complete` is True only when every configured target was
+    actually reached (expanded to the target level, service state set, hiring started, every
+    vehicle bought, dispatch assigned) — the signal used to decide a station is fully "done",
+    distinct from the build itself succeeding. A crew shortfall (not enough hireable personnel)
+    is not treated as incomplete, since re-running can't conjure people who don't exist yet."""
+
+    complete: bool
+    messages: list[str]
+
+
 def parse_vehicles_json(raw: str) -> list[VehiclePresetItem]:
     return [VehiclePresetItem(**item) for item in json.loads(raw or "[]")]
 
@@ -40,50 +52,64 @@ def dump_vehicles_json(items: list[dict]) -> str:
     return json.dumps(items)
 
 
-def apply_preset(mc_client: MissionChiefClient, db, building_id: int, preset: StationPreset) -> list[str]:
-    """Returns human-readable messages describing what happened, in the order taken. Every
-    individual action is logged to preset_action_log as it completes (not just at the end), so
-    progress is visible on the building's page even while this is still running."""
+def apply_preset(mc_client: MissionChiefClient, db, building_id: int, preset: StationPreset) -> PresetOutcome:
+    """Applies every configured part of the preset and reports what happened. Every individual
+    action is also logged to preset_action_log as it completes (not just at the end), so progress
+    is visible on the building's page even while this is still running. `complete` in the returned
+    outcome is True only if every configured target was reached."""
     messages: list[str] = []
+    complete = True
 
     if preset.target_level:
-        messages.extend(_expand_to_level(mc_client, db, building_id, preset.target_level))
+        msgs, ok = _expand_to_level(mc_client, db, building_id, preset.target_level)
+        messages.extend(msgs)
+        complete = complete and ok
 
     if preset.manage_service:
-        messages.extend(_apply_service_state(mc_client, db, building_id, preset.target_enabled))
+        msgs, ok = _apply_service_state(mc_client, db, building_id, preset.target_enabled)
+        messages.extend(msgs)
+        complete = complete and ok
 
     if preset.hire_days:
-        messages.extend(_apply_hiring(mc_client, db, building_id, preset.hire_days))
+        msgs, ok = _apply_hiring(mc_client, db, building_id, preset.hire_days)
+        messages.extend(msgs)
+        complete = complete and ok
 
     # Shared across every vehicle item in this run so the same person never gets claimed for
     # two different vehicles bought in the same application (see _assign_crew).
     claimed_personal_ids: set[int] = set()
     for item in parse_vehicles_json(preset.vehicles_json):
-        messages.extend(_apply_vehicle_target(mc_client, db, building_id, item, claimed_personal_ids))
+        msgs, ok = _apply_vehicle_target(mc_client, db, building_id, item, claimed_personal_ids)
+        messages.extend(msgs)
+        complete = complete and ok
 
     if preset.dispatch_center_id is not None:
-        messages.extend(_apply_dispatch_center(mc_client, db, building_id, preset.dispatch_center_id))
+        msgs, ok = _apply_dispatch_center(mc_client, db, building_id, preset.dispatch_center_id)
+        messages.extend(msgs)
+        complete = complete and ok
 
     if not messages:
         messages.append("Nothing to do — this preset has no actions configured.")
-    return messages
+    return PresetOutcome(complete=complete, messages=messages)
 
 
-def _apply_dispatch_center(mc_client: MissionChiefClient, db, building_id: int, leitstelle_id: int) -> list[str]:
+def _apply_dispatch_center(
+    mc_client: MissionChiefClient, db, building_id: int, leitstelle_id: int
+) -> tuple[list[str], bool]:
     try:
         result = mc_client.set_dispatch_center(building_id, leitstelle_id)
     except Exception as exc:
         log_preset_action(db, building_id, "set_dispatch_center", leitstelle_id, False, str(exc))
         logger.exception("Preset dispatch: error assigning building %s to leitstelle %s", building_id, leitstelle_id)
-        return [f"Could not assign dispatch center {leitstelle_id}: {exc}"]
+        return [f"Could not assign dispatch center {leitstelle_id}: {exc}"], False
 
     log_preset_action(
         db, building_id, "set_dispatch_center", leitstelle_id, result.success,
         f"leitstelle {leitstelle_id}" if result.success else "not confirmed",
     )
     if not result.success:
-        return [f"Could not confirm dispatch-center assignment to {leitstelle_id}."]
-    return [f"Assigned to dispatch center {leitstelle_id}."]
+        return [f"Could not confirm dispatch-center assignment to {leitstelle_id}."], False
+    return [f"Assigned to dispatch center {leitstelle_id}."], True
 
 
 def _best_expand_param(prices: dict[int, int], current_level: int, target_level: int) -> int | None:
@@ -96,18 +122,20 @@ def _best_expand_param(prices: dict[int, int], current_level: int, target_level:
     return max(candidates) if candidates else None
 
 
-def _expand_to_level(mc_client: MissionChiefClient, db, building_id: int, target_level: int) -> list[str]:
+def _expand_to_level(
+    mc_client: MissionChiefClient, db, building_id: int, target_level: int
+) -> tuple[list[str], bool]:
     messages = []
     try:
         current_level = mc_client.get_building_detail(building_id)["level"]
     except Exception as exc:
         messages.append(f"Stopped expanding: could not read live state ({exc}).")
         logger.exception("Preset expand: could not read state for building %s", building_id)
-        return messages
+        return messages, False
 
     if current_level >= target_level:
         messages.append(f"Already at level {current_level} (target {target_level}).")
-        return messages
+        return messages, True
 
     # Jump straight to the target in a single request rather than buying one rung at a time (up to
     # ~38 extra round-trips for a full level-up). The loop only re-runs as a fallback if a single
@@ -152,67 +180,73 @@ def _expand_to_level(mc_client: MissionChiefClient, db, building_id: int, target
             break
         current_level = result.new_level
 
-    return messages
+    return messages, current_level >= target_level
 
 
-def _apply_service_state(mc_client: MissionChiefClient, db, building_id: int, target_enabled: bool) -> list[str]:
+def _apply_service_state(
+    mc_client: MissionChiefClient, db, building_id: int, target_enabled: bool
+) -> tuple[list[str], bool]:
     try:
         current_enabled = mc_client.get_building_detail(building_id)["enabled"]
     except Exception as exc:
         logger.exception("Preset service state: could not read state for building %s", building_id)
-        return [f"Could not check service state: {exc}"]
+        return [f"Could not check service state: {exc}"], False
 
     if current_enabled == target_enabled:
-        return []
+        return [], True
 
     try:
         result = mc_client.toggle_service(building_id)
     except Exception as exc:
         log_preset_action(db, building_id, "toggle_service", None, False, str(exc))
         logger.exception("Preset service state: error toggling building %s", building_id)
-        return [f"Could not set service state: {exc}"]
+        return [f"Could not set service state: {exc}"], False
 
     log_preset_action(db, building_id, "toggle_service", None, result.success, str(result.enabled))
     if not result.success:
-        return ["Could not confirm the service-state change."]
-    return [f"Service state set to {'in service' if result.enabled else 'out of service'}."]
+        return ["Could not confirm the service-state change."], False
+    return [f"Service state set to {'in service' if result.enabled else 'out of service'}."], True
 
 
-def _apply_hiring(mc_client: MissionChiefClient, db, building_id: int, hire_days: int) -> list[str]:
+def _apply_hiring(mc_client: MissionChiefClient, db, building_id: int, hire_days: int) -> tuple[list[str], bool]:
     try:
         hiring_phase = mc_client.get_building_detail(building_id)["hiring_phase"]
     except Exception as exc:
         logger.exception("Preset hiring: could not read state for building %s", building_id)
-        return [f"Could not check hiring phase: {exc}"]
+        return [f"Could not check hiring phase: {exc}"], False
 
     if hiring_phase:
-        return ["A recruiting phase is already active — skipped."]
+        return ["A recruiting phase is already active — skipped."], True
 
     try:
         result = mc_client.hire(building_id, hire_days)
     except Exception as exc:
         log_preset_action(db, building_id, "hire", hire_days, False, str(exc))
         logger.exception("Preset hiring: error hiring for building %s", building_id)
-        return [f"Could not start hiring: {exc}"]
+        return [f"Could not start hiring: {exc}"], False
 
     log_preset_action(db, building_id, "hire", hire_days, result.success, "started" if result.success else "not confirmed")
     if not result.success:
-        return ["Could not confirm the recruiting phase started."]
-    return [f"Started a {hire_days}-day recruiting phase."]
+        return ["Could not confirm the recruiting phase started."], False
+    return [f"Started a {hire_days}-day recruiting phase."], True
 
 
 def _apply_vehicle_target(
     mc_client: MissionChiefClient, db, building_id: int, item: VehiclePresetItem, claimed_personal_ids: set[int]
-) -> list[str]:
+) -> tuple[list[str], bool]:
     already = count_preset_vehicle_purchases(db, building_id, item.vehicle_type_id)
     to_buy = item.count - already
     if to_buy <= 0:
-        return []
+        return [], True
 
     messages = []
+    bought = 0
+    # Chain the vehicle-id snapshot across this shopping list so we don't re-download the whole
+    # /api/vehicles list before every single purchase (see buy_vehicle).
+    before_ids: set[int] | None = None
     for _ in range(to_buy):
         try:
-            result = mc_client.buy_vehicle(building_id, item.vehicle_type_id)
+            result = mc_client.buy_vehicle(building_id, item.vehicle_type_id, before_ids=before_ids)
         except Exception as exc:
             log_preset_action(db, building_id, "buy_vehicle", item.vehicle_type_id, False, str(exc))
             logger.exception("Preset vehicles: error buying for building %s", building_id)
@@ -230,15 +264,19 @@ def _apply_vehicle_target(
                 f"type. Server said: {detail!r}"
             )
             break
+        before_ids = result.known_vehicle_ids
+        bought += 1
         messages.append(f"Bought vehicle_type {item.vehicle_type_id} ({result.price:,} credits).")
 
         if item.personnel_per_vehicle > 0 and result.vehicle:
+            # Crew assignment is best-effort — a shortage of hireable personnel doesn't make the
+            # preset "incomplete" (re-running can't create people), so it doesn't affect the flag.
             messages.extend(
                 _assign_crew(
                     mc_client, db, building_id, result.vehicle["id"], item.personnel_per_vehicle, claimed_personal_ids
                 )
             )
-    return messages
+    return messages, bought == to_buy
 
 
 def _assign_crew(

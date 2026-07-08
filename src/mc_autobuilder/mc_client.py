@@ -193,6 +193,26 @@ def parse_personnel_roster(html: str) -> list[PersonnelEntry]:
     return entries
 
 
+# Confirmed in docs/missionchief-api.md: on /vehicles/<id>/zuweisung each roster row's action link
+# is /vehicles/<id>/zuweisungDo/<personal_id>; a person already bound to THIS vehicle gets the
+# "Remove binding" variant (class btn-assigned), an unbound one gets "Assign vehicle".
+ZUWEISUNG_DO_HREF_RE = re.compile(r"/vehicles/\d+/zuweisungDo/(\d+)")
+
+
+def parse_vehicle_bound_personnel_ids(html: str) -> set[int]:
+    """From /vehicles/<id>/zuweisung, the personal_ids currently bound to that one vehicle. This
+    is a small per-vehicle page, so it's a far cheaper way to verify a crew assignment than
+    diffing the whole ~17 MB /api/vehicles list (docs/missionchief-api.md)."""
+    soup = BeautifulSoup(html, "html.parser")
+    bound: set[int] = set()
+    for link in soup.find_all("a", href=ZUWEISUNG_DO_HREF_RE):
+        classes = link.get("class") or []
+        text = link.get_text(strip=True).lower()
+        if "btn-assigned" in classes or "remove" in text:
+            bound.add(int(ZUWEISUNG_DO_HREF_RE.search(link["href"]).group(1)))
+    return bound
+
+
 @dataclass
 class BuildResult:
     success: bool
@@ -232,6 +252,9 @@ class VehiclePurchaseResult:
     price: int
     response_status: int
     response_text: str = ""
+    # Snapshot of all vehicle ids after this purchase, so a chained shopping list can pass it as
+    # the next buy_vehicle's `before_ids` instead of re-downloading /api/vehicles each time.
+    known_vehicle_ids: set[int] | None = None
 
 
 @dataclass
@@ -501,11 +524,19 @@ class MissionChiefClient:
         resp = self._request("GET", f"/buildings/{building_id}/vehicles/new", ajax=False)
         return parse_vehicle_purchase_options(resp.text)
 
-    def buy_vehicle(self, building_id: int, vehicle_type_id: int) -> VehiclePurchaseResult:
+    def buy_vehicle(
+        self, building_id: int, vehicle_type_id: int, before_ids: set[int] | None = None
+    ) -> VehiclePurchaseResult:
         """GET /buildings/<id>/vehicle/<id>/<vehicle_type_id>/credits — buy one vehicle of
         `vehicle_type_id` for this station. Always Credits, never Coins. Verified via
         /api/vehicles, diffing for a new entry with matching building_id (failure-response shape
-        unconfirmed — docs/missionchief-api.md)."""
+        unconfirmed — docs/missionchief-api.md).
+
+        `before_ids` is an optional pre-fetched set of the account's current vehicle ids. When
+        buying several vehicles in a row (a preset shopping list), the caller passes the previous
+        purchase's post-state so we don't re-download the whole ~17 MB /api/vehicles list before
+        every single purchase — the returned result's `known_vehicle_ids` carries the new state
+        forward for the next call."""
         options = self.get_vehicle_purchase_options(building_id)
         option = options.get(vehicle_type_id)
         if option is None:
@@ -515,7 +546,8 @@ class MissionChiefClient:
                 "out-of-service station may list no purchasable vehicles until it's in service."
             )
 
-        before_ids = {v["id"] for v in self.get_vehicles()}
+        if before_ids is None:
+            before_ids = {v["id"] for v in self.get_vehicles()}
         # Use the page's exact purchase link rather than reconstructing it from building_id: the
         # two path ids in .../vehicle/<a>/<b>/credits aren't guaranteed to both be the building_id.
         resp = self._request("GET", option.purchase_href, ajax=False, allow_redirects=False)
@@ -529,6 +561,7 @@ class MissionChiefClient:
             success=success,
             vehicle=new_vehicle,
             price=option.price_credits,
+            known_vehicle_ids={v["id"] for v in after},
             response_status=resp.status_code,
             # On failure keep both the response body and which URL we hit, so a purchase that 302s
             # but doesn't produce a vehicle can be diagnosed without a fresh capture.
@@ -575,25 +608,28 @@ class MissionChiefClient:
         resp = self._request("GET", f"/buildings/{building_id}/personals", ajax=False)
         return parse_personnel_roster(resp.text)
 
+    def get_vehicle_bound_personnel_ids(self, vehicle_id: int) -> set[int]:
+        """GET /vehicles/<id>/zuweisung — personal_ids currently bound to this one vehicle. Small
+        per-vehicle page, used to verify assignments without pulling all ~17 MB of /api/vehicles."""
+        resp = self._request("GET", f"/vehicles/{vehicle_id}/zuweisung", ajax=False)
+        return parse_vehicle_bound_personnel_ids(resp.text)
+
     def assign_personnel(self, vehicle_id: int, personal_id: int) -> AssignPersonnelResult:
         """POST /vehicles/<vehicle_id>/zuweisungDo/<personal_id> — toggle this person's permanent
         crew-roster binding to this vehicle: assigns if unbound, unassigns if already bound
-        (confirmed docs/missionchief-api.md). No POST body; both IDs are in the URL. Verified via
-        /api/vehicles' `assigned_personnel_count` for this vehicle changing — the response body is
-        a small HTML row fragment describing the person's live mission-dispatch status, which is
-        unrelated to roster-binding success (see docs/missionchief-api.md's "open oddity, resolved")."""
-        before = next((v for v in self.get_vehicles() if v["id"] == vehicle_id), None)
-        if before is None:
-            raise ValueError(f"No vehicle with id {vehicle_id} found in /api/vehicles")
+        (confirmed docs/missionchief-api.md). No POST body; both IDs are in the URL.
 
+        Verified via the small per-vehicle /vehicles/<id>/zuweisung page's binding state flipping
+        for this person, rather than diffing the whole ~17 MB /api/vehicles list — the latter,
+        called twice per person, is what made staffing a station take minutes."""
+        before_bound = self.get_vehicle_bound_personnel_ids(vehicle_id)
         resp = self._request("POST", f"/vehicles/{vehicle_id}/zuweisungDo/{personal_id}")
-
-        after = next((v for v in self.get_vehicles() if v["id"] == vehicle_id), None)
-        after_count = after["assigned_personnel_count"] if after else None
-        success = after_count != before["assigned_personnel_count"]
+        after_bound = self.get_vehicle_bound_personnel_ids(vehicle_id)
+        # A successful toggle flips this person's membership in the vehicle's bound set.
+        success = (personal_id in after_bound) != (personal_id in before_bound)
         return AssignPersonnelResult(
             success=success,
-            assigned_personnel_count=after_count,
+            assigned_personnel_count=len(after_bound),
             response_status=resp.status_code,
             response_text="" if success else resp.text,
         )

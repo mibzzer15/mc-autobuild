@@ -17,17 +17,18 @@
       {% if preset.manage_service %}· {{ "Keep in service" if preset.target_enabled else "Keep out of service" }}{% endif %}
       {% if preset.hire_days %}· Recruit {{ preset.hire_days }}d{% endif %}
     </p>
-    {% if preset_in_progress %}
-    <p><strong>Applying now in the background — refresh this page to see progress.</strong></p>
-    {% else %}
-    <form method="post" action="/buildings/{{ building_id }}/apply-preset">
+    <div id="preset-live" data-building-id="{{ building_id }}" data-in-progress="{{ 'true' if preset_in_progress else 'false' }}">
+      <p id="preset-live-status">
+        {% if preset_in_progress %}<strong>Applying now — this updates live below.</strong>{% endif %}
+      </p>
+    </div>
+    <form method="post" action="/buildings/{{ building_id }}/apply-preset" id="apply-preset-form"
+          {% if preset_in_progress %}style="display:none"{% endif %}>
       <button type="submit" class="btn">Apply preset now</button>
     </form>
-    {% endif %}
-    {% if preset_log %}
-    <table class="sortable">
+    <table class="sortable" id="preset-log-table" {% if not preset_log %}style="display:none"{% endif %}>
       <thead><tr><th>When</th><th>Action</th><th>Result</th></tr></thead>
-      <tbody>
+      <tbody id="preset-log-body">
         {% for entry in preset_log %}
         <tr>
           <td>{{ entry.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
@@ -37,7 +38,7 @@
         {% endfor %}
       </tbody>
     </table>
-    {% endif %}
+    <script src="/static/preset_progress.js"></script>
   {% else %}
     <p class="muted">No preset configured for this building type. <a href="/presets">Set one up</a>.</p>
   {% endif %}

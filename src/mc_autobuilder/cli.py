@@ -183,7 +183,7 @@ def _apply_preset_if_configured(logger, session_factory, mc_client: MissionChief
         if preset is None:
             return
         typer.echo(f"Applying preset for building_type {building_type}...")
-        for message in apply_preset_lib(mc_client, db, building_id, preset):
+        for message in apply_preset_lib(mc_client, db, building_id, preset).messages:
             typer.echo(f"  {message}")
             logger.info("Preset action for building %s: %s", building_id, message)
 
@@ -946,7 +946,7 @@ def apply_preset(
 
     typer.echo(f"Applying preset to building {building_id}...")
     with session_factory() as db:
-        for message in apply_preset_lib(mc_client, db, building_id, preset):
+        for message in apply_preset_lib(mc_client, db, building_id, preset).messages:
             typer.echo(f"  {message}")
             logger.info("Preset action for building %s: %s", building_id, message)
     typer.echo(f"Full log: {log_path}")

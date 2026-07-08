@@ -451,8 +451,12 @@ Fire Department Station 1", a Fire station) and its two vehicles (`14577420`, `1
   vehicle — which is entirely independent of the *permanent crew-roster binding* `zuweisungDo`
   controls. A person can show "In a Vehicle: X" (mid-call) while their assign/unassign link for a
   completely different vehicle Y still says "Assign vehicle", because roster binding and real-time
-  dispatch occupancy are unrelated axes. Don't conflate them; verify assignment success via
-  `/api/vehicles`'s `assigned_personnel_count` (confirmed field), not the Status column.
+  dispatch occupancy are unrelated axes. Don't conflate them; verify assignment success via the
+  per-vehicle `/vehicles/<id>/zuweisung` page's binding link (`btn-assigned` = bound) flipping for
+  that person. `mc_client.assign_personnel` uses this small page rather than diffing the whole
+  ~17 MB `/api/vehicles` list (which, called twice per person, made staffing a station take
+  minutes); `parse_vehicle_bound_personnel_ids` reads the bound set. The `assigned_personnel_count`
+  field on `/api/vehicles` is also confirmed but far more expensive to fetch.
 - `GET /vehicles/<id>/update_required_personnel_alert` fires after each assignment (empty `200`
   body) — a UI badge refresh, not load-bearing.
 - Education/training requirement surfacing on assignment (e.g. a vehicle requiring a trained

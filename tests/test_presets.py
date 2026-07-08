@@ -58,7 +58,7 @@ def _preset(**overrides):
 
 
 def test_apply_preset_with_nothing_configured_is_a_noop_message(client, db):
-    messages = apply_preset(client, db, 5558174, _preset())
+    messages = apply_preset(client, db, 5558174, _preset()).messages
     assert messages == ["Nothing to do — this preset has no actions configured."]
 
 
@@ -80,7 +80,7 @@ def test_expand_jumps_straight_to_target_in_one_request(client, db, monkeypatch)
 
     monkeypatch.setattr(MissionChiefClient, "expand_building", fake_expand)
 
-    messages = apply_preset(client, db, 5558174, _preset(target_level=2))
+    messages = apply_preset(client, db, 5558174, _preset(target_level=2)).messages
 
     assert calls == [1]  # one request straight to the target (param = target - 1)
     assert "Expanded to level 2" in messages[-1]
@@ -106,7 +106,7 @@ def test_expand_falls_back_to_looping_if_a_jump_lands_short(client, db, monkeypa
 
     monkeypatch.setattr(MissionChiefClient, "expand_building", only_one_rung)
 
-    messages = apply_preset(client, db, 5558174, _preset(target_level=3))
+    messages = apply_preset(client, db, 5558174, _preset(target_level=3)).messages
 
     assert reached["level"] == 3  # eventually reached the target
     assert len(calls) == 3  # took three jumps because each only advanced one level
@@ -121,7 +121,7 @@ def test_expand_to_level_stops_once_target_reached(client, db, monkeypatch):
         lambda self, bid, level: pytest.fail("should not be called"),
     )
 
-    messages = apply_preset(client, db, 5558174, _preset(target_level=5))
+    messages = apply_preset(client, db, 5558174, _preset(target_level=5)).messages
     assert "Already at level 5 (target 5)." in messages[0]
 
 
@@ -135,7 +135,7 @@ def test_expand_stops_if_no_forward_option_is_offered(client, db, monkeypatch):
         lambda self, bid, level: pytest.fail("should not be called"),
     )
 
-    messages = apply_preset(client, db, 5558174, _preset(target_level=10))
+    messages = apply_preset(client, db, 5558174, _preset(target_level=10)).messages
     assert "No expand option available to reach level 10" in messages[0]
 
 
@@ -147,7 +147,7 @@ def test_expand_stops_on_unconfirmed_failure_rather_than_looping_forever(client,
         lambda self, bid, level: ExpandResult(False, level, 10_000, None, 200, "insufficient funds"),
     )
 
-    messages = apply_preset(client, db, 5558174, _preset(target_level=5))
+    messages = apply_preset(client, db, 5558174, _preset(target_level=5)).messages
     assert "could not confirm the expansion" in messages[-1]
     assert len(get_preset_log(db, 5558174)) == 1  # only tried once, not in an infinite loop
 
@@ -158,7 +158,7 @@ def test_service_state_skips_when_already_matching(client, db, monkeypatch):
         MissionChiefClient, "toggle_service", lambda self, bid: pytest.fail("should not be called")
     )
 
-    messages = apply_preset(client, db, 5558174, _preset(manage_service=True, target_enabled=True))
+    messages = apply_preset(client, db, 5558174, _preset(manage_service=True, target_enabled=True)).messages
     assert messages == ["Nothing to do — this preset has no actions configured."]
 
 
@@ -169,7 +169,7 @@ def test_service_state_toggles_when_it_does_not_match(client, db, monkeypatch):
         lambda self, bid: ServiceToggleResult(True, False, 302),
     )
 
-    messages = apply_preset(client, db, 5558174, _preset(manage_service=True, target_enabled=False))
+    messages = apply_preset(client, db, 5558174, _preset(manage_service=True, target_enabled=False)).messages
     assert "out of service" in messages[0]
 
 
@@ -177,7 +177,7 @@ def test_hiring_skips_when_phase_already_active(client, db, monkeypatch):
     monkeypatch.setattr(MissionChiefClient, "get_building_detail", lambda self, bid: {"hiring_phase": 2})
     monkeypatch.setattr(MissionChiefClient, "hire", lambda self, bid, days: pytest.fail("should not be called"))
 
-    messages = apply_preset(client, db, 5558174, _preset(hire_days=3))
+    messages = apply_preset(client, db, 5558174, _preset(hire_days=3)).messages
     assert "already active" in messages[0]
 
 
@@ -185,7 +185,7 @@ def test_hiring_starts_when_no_phase_active(client, db, monkeypatch):
     monkeypatch.setattr(MissionChiefClient, "get_building_detail", lambda self, bid: {"hiring_phase": 0})
     monkeypatch.setattr(MissionChiefClient, "hire", lambda self, bid, days: HireResult(True, days, 302))
 
-    messages = apply_preset(client, db, 5558174, _preset(hire_days=3))
+    messages = apply_preset(client, db, 5558174, _preset(hire_days=3)).messages
     assert "Started a 3-day recruiting phase." in messages[0]
 
 
@@ -196,11 +196,11 @@ def test_vehicle_purchases_are_capped_by_our_own_log_not_live_state(client, db, 
     calls = []
     monkeypatch.setattr(
         MissionChiefClient, "buy_vehicle",
-        lambda self, bid, vehicle_type_id: (calls.append(vehicle_type_id) or VehiclePurchaseResult(True, {"id": 1}, 5_000, 302)),
+        lambda self, bid, vehicle_type_id, before_ids=None: (calls.append(vehicle_type_id) or VehiclePurchaseResult(True, {"id": 1}, 5_000, 302)),
     )
 
     vehicles = dump_vehicles_json([{"vehicle_type_id": 0, "count": 3, "personnel_per_vehicle": 0}])
-    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles))
+    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles)).messages
 
     assert calls == [0, 0]  # only 2 more needed to reach target of 3
     assert len([m for m in messages if "Bought" in m]) == 2
@@ -209,11 +209,11 @@ def test_vehicle_purchases_are_capped_by_our_own_log_not_live_state(client, db, 
 def test_vehicle_purchases_stop_on_first_unconfirmed_failure(client, db, monkeypatch):
     monkeypatch.setattr(
         MissionChiefClient, "buy_vehicle",
-        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(False, None, 5_000, 200, "insufficient funds"),
+        lambda self, bid, vehicle_type_id, before_ids=None: VehiclePurchaseResult(False, None, 5_000, 200, "insufficient funds"),
     )
 
     vehicles = dump_vehicles_json([{"vehicle_type_id": 0, "count": 3, "personnel_per_vehicle": 0}])
-    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles))
+    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles)).messages
 
     assert len(get_preset_log(db, 5558174)) == 1  # stopped after the first failed attempt
     assert "stopping this type" in messages[-1]
@@ -222,13 +222,13 @@ def test_vehicle_purchases_stop_on_first_unconfirmed_failure(client, db, monkeyp
 def test_vehicle_purchase_failure_surfaces_server_response_for_diagnosis(client, db, monkeypatch):
     monkeypatch.setattr(
         MissionChiefClient, "buy_vehicle",
-        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(
+        lambda self, bid, vehicle_type_id, before_ids=None: VehiclePurchaseResult(
             False, None, 5_000, 200, "POST /buildings/1/vehicle/1/0/credits -> 200\n<html>Not enough credits</html>"
         ),
     )
 
     vehicles = dump_vehicles_json([{"vehicle_type_id": 0, "count": 1}])
-    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles))
+    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles)).messages
 
     # The failure message and the logged action both include the server's response so a broken
     # purchase can be diagnosed from the building's action log without a fresh HAR.
@@ -246,7 +246,7 @@ def test_preset_assigns_dispatch_center_when_configured(client, db, monkeypatch)
 
     monkeypatch.setattr(MissionChiefClient, "set_dispatch_center", fake_set_dispatch)
 
-    messages = apply_preset(client, db, 5558174, _preset(dispatch_center_id=2534509))
+    messages = apply_preset(client, db, 5558174, _preset(dispatch_center_id=2534509)).messages
 
     assert calls == [(5558174, 2534509)]
     assert "Assigned to dispatch center 2534509." in messages[-1]
@@ -258,14 +258,14 @@ def test_preset_skips_dispatch_center_when_not_configured(client, db, monkeypatc
         MissionChiefClient, "set_dispatch_center",
         lambda self, bid, leitstelle_id: pytest.fail("should not be called when dispatch_center_id is None"),
     )
-    messages = apply_preset(client, db, 5558174, _preset())  # dispatch_center_id defaults to None
+    messages = apply_preset(client, db, 5558174, _preset()).messages  # dispatch_center_id defaults to None
     assert "Nothing to do" in messages[-1]
 
 
 def test_vehicle_purchase_assigns_crew_from_unassigned_roster(client, db, monkeypatch):
     monkeypatch.setattr(
         MissionChiefClient, "buy_vehicle",
-        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(True, {"id": 999}, 5_000, 302),
+        lambda self, bid, vehicle_type_id, before_ids=None: VehiclePurchaseResult(True, {"id": 999}, 5_000, 302),
     )
     monkeypatch.setattr(
         MissionChiefClient, "get_personnel_roster",
@@ -282,7 +282,7 @@ def test_vehicle_purchase_assigns_crew_from_unassigned_roster(client, db, monkey
     )
 
     vehicles = dump_vehicles_json([{"vehicle_type_id": 0, "count": 1, "personnel_per_vehicle": 2}])
-    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles))
+    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles)).messages
 
     assert assigned == [(999, 1), (999, 3)]  # only the two unassigned people, not Colin X.
     assert "Assigned Paul G. to vehicle 999." in messages
@@ -292,7 +292,7 @@ def test_vehicle_purchase_assigns_crew_from_unassigned_roster(client, db, monkey
 def test_crew_assignment_reports_shortfall_when_not_enough_unassigned_personnel(client, db, monkeypatch):
     monkeypatch.setattr(
         MissionChiefClient, "buy_vehicle",
-        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(True, {"id": 999}, 5_000, 302),
+        lambda self, bid, vehicle_type_id, before_ids=None: VehiclePurchaseResult(True, {"id": 999}, 5_000, 302),
     )
     monkeypatch.setattr(
         MissionChiefClient, "get_personnel_roster",
@@ -304,7 +304,7 @@ def test_crew_assignment_reports_shortfall_when_not_enough_unassigned_personnel(
     )
 
     vehicles = dump_vehicles_json([{"vehicle_type_id": 0, "count": 1, "personnel_per_vehicle": 3}])
-    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles))
+    messages = apply_preset(client, db, 5558174, _preset(vehicles_json=vehicles)).messages
 
     assert "Only 1/3 available" in messages[-1]
 
@@ -312,7 +312,7 @@ def test_crew_assignment_reports_shortfall_when_not_enough_unassigned_personnel(
 def test_crew_assignment_does_not_double_claim_the_same_person_across_vehicles(client, db, monkeypatch):
     monkeypatch.setattr(
         MissionChiefClient, "buy_vehicle",
-        lambda self, bid, vehicle_type_id: VehiclePurchaseResult(True, {"id": 100 + vehicle_type_id}, 5_000, 302),
+        lambda self, bid, vehicle_type_id, before_ids=None: VehiclePurchaseResult(True, {"id": 100 + vehicle_type_id}, 5_000, 302),
     )
     monkeypatch.setattr(
         MissionChiefClient, "get_personnel_roster",
